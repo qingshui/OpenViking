@@ -4,6 +4,7 @@
 
 from typing import Any, Dict, List, Optional
 
+import httpx
 import openai
 
 from openviking.models.embedder.base import (
@@ -12,6 +13,7 @@ from openviking.models.embedder.base import (
     HybridEmbedderBase,
     SparseEmbedderBase,
 )
+from openviking_cli.utils.logger import default_logger as logger
 
 
 class OpenAIDenseEmbedder(DenseEmbedderBase):
@@ -175,3 +177,211 @@ class OpenAIHybridEmbedder(HybridEmbedderBase):
 
     def get_dimension(self) -> int:
         raise NotImplementedError()
+
+
+class OpenAICompatibleDenseEmbedder(DenseEmbedderBase):
+    """OpenAI-Compatible Dense Embedder for custom embedding endpoints
+
+    Supports any OpenAI-compatible embedding API that may return non-standard response formats.
+    Uses httpx directly instead of the OpenAI SDK for more flexible response handling.
+
+    Example:
+        >>> embedder = OpenAICompatibleDenseEmbedder(
+        ...     model_name="qwen3-embedding",
+        ...     api_key="your-key",
+        ...     api_base="http://localhost:8001",
+        ...     dimension=1024
+        ... )
+        >>> result = embedder.embed("Hello world")
+        >>> print(len(result.dense_vector))
+        1024
+    """
+
+    def __init__(
+        self,
+        model_name: str = "text-embedding-3-small",
+        api_key: Optional[str] = None,
+        api_base: Optional[str] = None,
+        dimension: Optional[int] = None,
+        config: Optional[Dict[str, Any]] = None,
+    ):
+        """Initialize OpenAI-Compatible Dense Embedder
+
+        Args:
+            model_name: Model name for the embedding API
+            api_key: API key for authentication
+            api_base: Base URL for the embedding API (e.g., http://localhost:8001)
+            dimension: Target dimension for embeddings
+            config: Additional configuration dict
+
+        Raises:
+            ValueError: If api_key or api_base is not provided
+        """
+        super().__init__(model_name, config)
+
+        self.api_key = api_key
+        self.api_base = api_base
+        self.dimension = dimension
+
+        if not self.api_key:
+            raise ValueError("api_key is required")
+        if not self.api_base:
+            raise ValueError("api_base is required for openai_compatible provider")
+
+        # Normalize api_base - remove trailing /embeddings if present
+        if self.api_base.endswith("/embeddings"):
+            self.api_base = self.api_base[:-11]  # Remove "/embeddings"
+
+        self._dimension = dimension or 1024
+
+    def _extract_embedding(self, data: Any) -> List[float]:
+        """Extract embedding vector from various response formats
+
+        Handles multiple response formats:
+        1. Standard OpenAI: {"data": [{"embedding": [...]}]}
+        2. Simple list: [{"embedding": [...]}]
+        3. Nested list: [{"embedding": [[...]]}]
+        4. Direct embedding: {"embedding": [...]}
+
+        Args:
+            data: Parsed JSON response
+
+        Returns:
+            List[float]: The embedding vector
+
+        Raises:
+            ValueError: If embedding cannot be extracted
+        """
+        # Standard OpenAI format: {"data": [...]}
+        if isinstance(data, dict) and "data" in data:
+            items = data["data"]
+            if isinstance(items, list) and len(items) > 0:
+                item = items[0]
+                if isinstance(item, dict) and "embedding" in item:
+                    emb = item["embedding"]
+                    # Handle nested list format
+                    if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
+                        return emb[0]
+                    return emb
+
+        # List format: [{"embedding": ...}]
+        if isinstance(data, list) and len(data) > 0:
+            item = data[0]
+            if isinstance(item, dict) and "embedding" in item:
+                emb = item["embedding"]
+                # Handle nested list format
+                if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
+                    return emb[0]
+                return emb
+
+        # Direct embedding: {"embedding": [...]}
+        if isinstance(data, dict) and "embedding" in data:
+            emb = data["embedding"]
+            if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
+                return emb[0]
+            return emb
+
+        raise ValueError(f"Cannot extract embedding from response format: {type(data)}")
+
+    def embed(self, text: str) -> EmbedResult:
+        """Perform dense embedding on text
+
+        Args:
+            text: Input text
+
+        Returns:
+            EmbedResult: Result containing only dense_vector
+
+        Raises:
+            RuntimeError: When API call fails
+        """
+        url = f"{self.api_base}/embeddings"
+        payload = {"input": text, "model": self.model_name}
+
+        try:
+            with httpx.Client(timeout=60.0) as client:
+                response = client.post(
+                    url,
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+
+            if response.status_code != 200:
+                raise RuntimeError(
+                    f"Embedding API returned status {response.status_code}: {response.text}"
+                )
+
+            data = response.json()
+            vector = self._extract_embedding(data)
+
+            return EmbedResult(dense_vector=vector)
+
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"HTTP error during embedding: {str(e)}") from e
+        except Exception as e:
+            raise RuntimeError(f"Embedding failed: {str(e)}") from e
+
+    def embed_batch(self, texts: List[str]) -> List[EmbedResult]:
+        """Batch embedding
+
+        Args:
+            texts: List of texts
+
+        Returns:
+            List[EmbedResult]: List of embedding results
+
+        Raises:
+            RuntimeError: When API call fails
+        """
+        if not texts:
+            return []
+
+        url = f"{self.api_base}/embeddings"
+        payload = {"input": texts, "model": self.model_name}
+
+        try:
+            with httpx.Client(timeout=60.0) as client:
+                response = client.post(
+                    url,
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+
+            if response.status_code != 200:
+                raise RuntimeError(
+                    f"Embedding API returned status {response.status_code}: {response.text}"
+                )
+
+            data = response.json()
+
+            # Handle batch response formats
+            results = []
+            if isinstance(data, dict) and "data" in data:
+                items = data["data"]
+            elif isinstance(data, list):
+                items = data
+            else:
+                raise ValueError(f"Cannot parse batch response: {type(data)}")
+
+            for item in items:
+                if isinstance(item, dict) and "embedding" in item:
+                    emb = item["embedding"]
+                    if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
+                        results.append(EmbedResult(dense_vector=emb[0]))
+                    else:
+                        results.append(EmbedResult(dense_vector=emb))
+
+            return results
+
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"HTTP error during batch embedding: {str(e)}") from e
+        except Exception as e:
+            raise RuntimeError(f"Batch embedding failed: {str(e)}") from e
+
+    def get_dimension(self) -> int:
+        """Get embedding dimension
+
+        Returns:
+            int: Vector dimension
+        """
+        return self._dimension

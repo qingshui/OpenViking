@@ -157,6 +157,87 @@ def test_embedding_validation():
         print(f"   Fail (provider='volcengine' should have priority, got '{config_b.provider}')")
 
 
+def test_openai_compatible_provider():
+    """Test openai_compatible provider validation"""
+    print("\n" + "=" * 60)
+    print("Test openai_compatible provider validation")
+    print("=" * 60)
+
+    # Test 1: openai_compatible provider complete config
+    print("\n1. Test openai_compatible provider complete config...")
+    try:
+        config = EmbeddingConfig(
+            dense=EmbeddingModelConfig(
+                provider="openai_compatible",
+                model="bge-large-zh-v1.5",
+                api_key="fake-api-key-for-testing",
+                api_base="http://localhost:8000/v1",
+                dimension=1024,
+            )
+        )
+        print("   Pass")
+    except ValueError as e:
+        print(f"   Fail: {e}")
+
+    # Test 2: openai_compatible provider missing api_key
+    print("\n2. Test openai_compatible provider missing api_key...")
+    try:
+        _ = EmbeddingConfig(
+            dense=EmbeddingModelConfig(
+                provider="openai_compatible",
+                model="bge-large-zh-v1.5",
+                api_base="http://localhost:8000/v1",
+                dimension=1024,
+            )
+        )
+        print("   Should fail but passed")
+    except ValueError as e:
+        if "api_key" in str(e):
+            print(f"   Correctly raised exception: {e}")
+        else:
+            print(f"   Wrong error message: {e}")
+
+    # Test 3: openai_compatible provider missing api_base
+    print("\n3. Test openai_compatible provider missing api_base...")
+    try:
+        _ = EmbeddingConfig(
+            dense=EmbeddingModelConfig(
+                provider="openai_compatible",
+                model="bge-large-zh-v1.5",
+                api_key="fake-api-key-for-testing",
+                dimension=1024,
+            )
+        )
+        print("   Should fail but passed")
+    except ValueError as e:
+        if "api_base" in str(e):
+            print(f"   Correctly raised exception: {e}")
+        else:
+            print(f"   Wrong error message: {e}")
+
+    # Test 4: Factory creates correct embedder
+    print("\n4. Test factory creates OpenAIDenseEmbedder for openai_compatible...")
+    try:
+        config = EmbeddingConfig(
+            dense=EmbeddingModelConfig(
+                provider="openai_compatible",
+                model="bge-large-zh-v1.5",
+                api_key="fake-api-key-for-testing",
+                api_base="http://localhost:8000/v1",
+                dimension=1024,
+            )
+        )
+        embedder = config.get_embedder()
+        from openviking.models.embedder import OpenAIDenseEmbedder
+
+        if isinstance(embedder, OpenAIDenseEmbedder):
+            print("   Pass (OpenAIDenseEmbedder created)")
+        else:
+            print(f"   Fail (expected OpenAIDenseEmbedder, got {type(embedder).__name__})")
+    except Exception as e:
+        print(f"   Fail: {e}")
+
+
 def test_vlm_validation():
     """Test VLM config validation"""
     print("\n" + "=" * 60)
@@ -213,6 +294,7 @@ if __name__ == "__main__":
         test_agfs_validation()
         test_vectordb_validation()
         test_embedding_validation()
+        test_openai_compatible_provider()
         test_vlm_validation()
 
         print("\n" + "=" * 60)

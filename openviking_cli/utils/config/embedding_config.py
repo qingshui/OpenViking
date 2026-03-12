@@ -16,7 +16,7 @@ class EmbeddingModelConfig(BaseModel):
     input: str = Field(default="multimodal", description="Input type: 'text' or 'multimodal'")
     provider: Optional[str] = Field(
         default="volcengine",
-        description="Provider type: 'openai', 'volcengine', 'vikingdb', 'jina'",
+        description="Provider type: 'openai', 'volcengine', 'vikingdb', 'jina', 'openai_compatible'",
     )
     backend: Optional[str] = Field(
         default="volcengine",
@@ -53,9 +53,9 @@ class EmbeddingModelConfig(BaseModel):
         if not self.provider:
             raise ValueError("Embedding provider is required")
 
-        if self.provider not in ["openai", "volcengine", "vikingdb", "jina"]:
+        if self.provider not in ["openai", "volcengine", "vikingdb", "jina", "openai_compatible"]:
             raise ValueError(
-                f"Invalid embedding provider: '{self.provider}'. Must be one of: 'openai', 'volcengine', 'vikingdb', 'jina'"
+                f"Invalid embedding provider: '{self.provider}'. Must be one of: 'openai', 'volcengine', 'vikingdb', 'jina', 'openai_compatible'"
             )
 
         # Provider-specific validation
@@ -84,6 +84,12 @@ class EmbeddingModelConfig(BaseModel):
         elif self.provider == "jina":
             if not self.api_key:
                 raise ValueError("Jina provider requires 'api_key' to be set")
+
+        elif self.provider == "openai_compatible":
+            if not self.api_key:
+                raise ValueError("openai_compatible provider requires 'api_key' to be set")
+            if not self.api_base:
+                raise ValueError("openai_compatible provider requires 'api_base' to be set")
 
         return self
 
@@ -135,6 +141,7 @@ class EmbeddingConfig(BaseModel):
         """
         from openviking.models.embedder import (
             JinaDenseEmbedder,
+            OpenAICompatibleDenseEmbedder,
             OpenAIDenseEmbedder,
             VikingDBDenseEmbedder,
             VikingDBHybridEmbedder,
@@ -222,6 +229,15 @@ class EmbeddingConfig(BaseModel):
             ),
             ("jina", "dense"): (
                 JinaDenseEmbedder,
+                lambda cfg: {
+                    "model_name": cfg.model,
+                    "api_key": cfg.api_key,
+                    "api_base": cfg.api_base,
+                    "dimension": cfg.dimension,
+                },
+            ),
+            ("openai_compatible", "dense"): (
+                OpenAICompatibleDenseEmbedder,
                 lambda cfg: {
                     "model_name": cfg.model,
                     "api_key": cfg.api_key,
