@@ -99,28 +99,15 @@ install_python_deps() {
         PYTHON_CMD="python"
     fi
 
+    log_info "使用当前 Python 环境：$PYTHON_CMD"
+
     # 检查 uv
     if command -v uv &> /dev/null; then
         log_info "使用 uv 安装依赖..."
-        uv venv --python 3.11 .venv 2>/dev/null || uv venv --python 3.10 .venv 2>/dev/null || uv venv .venv
-        source .venv/bin/activate
-
-        # 尝试使用 uv sync
-        if uv sync --all-extras 2>/dev/null; then
-            log_info "uv sync 成功"
-        else
-            # 回退到 pip
-            log_warn "uv sync 失败，使用 pip 安装"
-            pip install -e . --force-reinstall
-        fi
+        uv pip install -e . --force-reinstall
     else
-        # 使用 pip
-        if [[ ! -d ".venv" ]]; then
-            log_info "创建虚拟环境..."
-            $PYTHON_CMD -m venv .venv
-        fi
-        source .venv/bin/activate
-        pip install -e . --force-reinstall
+        # 使用 pip 直接安装到当前环境
+        $PYTHON_CMD -m pip install -e . --force-reinstall
     fi
 
     log_info "Python 依赖安装完成"
@@ -170,17 +157,24 @@ generate_config() {
         # 生成默认配置
         cat > "$CONFIG_DIR/ov.conf" << 'EOF'
 {
+  "server": {
+    "host": "0.0.0.0",
+    "port": 1933,
+    "root_api_key": "your-root-api-key-here"
+  },
   "storage": {
     "workspace": "$HOME/.openviking/data",
     "agfs": {
-      "mode": "http-client",
-      "url": "http://localhost:3467",
-      "timeout": 300
+      "port": 1833,
+      "log_level": "warn",
+      "backend": "local",
+      "timeout": 10,
+      "retry_times": 3
     },
     "vectordb": {
-      "provider": "mongodb",
-      "connection_uri": "mongodb://localhost:27017",
-      "database": "openviking"
+      "name": "context",
+      "backend": "local",
+      "project": "default"
     }
   },
   "log": {
@@ -188,21 +182,20 @@ generate_config() {
     "output": "stdout"
   },
   "embedding": {
+    "max_concurrent": 10,
     "dense": {
-      "provider": "volcengine",
-      "api_key": "your-api-key",
-      "api_base": "https://ark.cn-beijing.volces.com/api/v3",
-      "model": "doubao-embedding-vision-250615",
-      "dimension": 1024,
-      "max_concurrent": 10
+      "provider": "openai_compatible",
+      "api_key": "your-api-key-here",
+      "api_base": "http://your-embedding-server:port",
+      "model": "your-embedding-model",
+      "dimension": 1024
     }
   },
   "vlm": {
-    "provider": "volcengine",
-    "api_key": "your-api-key",
-    "api_base": "https://ark.cn-beijing.volces.com/api/v3",
-    "model": "doubao-seed-2-0-pro-260215",
-    "max_concurrent": 100
+    "provider": "openai",
+    "api_key": "your-api-key-here",
+    "api_base": "http://your-llm-server:port",
+    "model": "your-llm-model"
   }
 }
 EOF
@@ -248,6 +241,63 @@ build_webadmin() {
     log_info "Web Admin 构建完成"
 }
 
+# 启动 AGFS 服务
+start_agfs() {
+    log_step "启动 AGFS 服务..."
+
+    # 检查 AGFS 二进制文件（优先使用部署目录，其次使用本地）
+    local AGFS_BIN="$HOME/.openviking/agfs/agfs-server"
+    if [[ ! -f "$AGFS_BIN" ]]; then
+        AGFS_BIN="openviking/bin/agfs-server"
+        if [[ ! -f "$AGFS_BIN" ]]; then
+            log_warn "AGFS 服务器二进制文件不存在，请先生成配置文件并安装依赖"
+            return 1
+        fi
+    fi
+
+    # 检查 AGFS 配置文件（优先使用部署目录，其次使用本地）
+    local AGFS_CONFIG="$HOME/.openviking/agfs/config.yaml"
+    if [[ ! -f "$AGFS_CONFIG" ]]; then
+        AGFS_CONFIG="third_party/agfs/agfs-server/config.yaml"
+        if [[ ! -f "$AGFS_CONFIG" ]]; then
+            log_warn "AGFS 配置文件不存在：$AGFS_CONFIG"
+            return 1
+        fi
+    fi
+
+    # 检查是否已在运行
+    if pgrep -f "agfs-server" > /dev/null; then
+        log_warn "AGFS 服务已在运行"
+        read -p "是否重启 AGFS 服务？(y/n): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            pkill -f "agfs-server"
+            sleep 2
+        else
+            log_info "跳过重启"
+            return 0
+        fi
+    fi
+
+    # 启动 AGFS 服务器
+    log_info "启动 AGFS 服务器..."
+    mkdir -p "$HOME/.openviking/log"
+    nohup "$AGFS_BIN" -addr :1833 -c "$AGFS_CONFIG" > "$HOME/.openviking/log/agfs.log" 2>&1 &
+    AGFS_PID=$!
+    echo $AGFS_PID > "$HOME/.openviking/agfs.pid"
+
+    # 等待 AGFS 启动
+    log_info "等待 AGFS 启动..."
+    sleep 3
+
+    # 检查 AGFS 状态
+    if pgrep -f "agfs-server" > /dev/null; then
+        log_info "AGFS 服务启动成功 (PID: $AGFS_PID)"
+    else
+        log_warn "AGFS 服务可能未完全启动，请检查日志：$HOME/.openviking/log/agfs.log"
+    fi
+}
+
 # 启动服务
 start_services() {
     log_step "启动服务..."
@@ -268,9 +318,11 @@ start_services() {
         fi
     fi
 
+    # 启动 AGFS 服务
+    start_agfs
+
     # 启动 OpenViking 服务器
     log_info "启动 OpenViking 服务器..."
-    source .venv/bin/activate
     nohup openviking-server > "$HOME/.openviking/server.log" 2>&1 &
     SERVER_PID=$!
     echo $SERVER_PID > "$HOME/.openviking/server.pid"
@@ -286,15 +338,15 @@ start_services() {
         log_warn "服务器可能未完全启动，请检查日志：$HOME/.openviking/server.log"
     fi
 
-    # 启动 Web Admin
-    log_info "启动 Web Admin..."
+    # 启动 Web Admin 前端
+    log_info "启动 Web Admin 前端..."
     cd webadmin
-    nohup npm run dev > "$HOME/.openviking/webadmin.log" 2>&1 &
+    nohup npm run dev > "$HOME/.openviking/log/webadmin.log" 2>&1 &
     WEBADMIN_PID=$!
     echo $WEBADMIN_PID > "$HOME/.openviking/webadmin.pid"
     cd ..
 
-    log_info "Web Admin 启动成功 (PID: $WEBADMIN_PID)"
+    log_info "Web Admin 前端启动成功 (PID: $WEBADMIN_PID)"
 }
 
 # 显示状态
@@ -318,20 +370,39 @@ show_status() {
         echo "状态：运行中"
         local PID=$(pgrep -f "node.*vite" | head -1)
         echo "PID: $PID"
-        echo "访问：http://localhost:5173"
+        echo "访问：http://0.0.0.0:5173 (支持内网访问)"
     else
         echo "状态：未运行"
     fi
 
     echo ""
     echo "=== 日志文件 ==="
+    echo "AGFS 日志：$HOME/.openviking/log/agfs.log"
     echo "服务器日志：$HOME/.openviking/server.log"
-    echo "Web Admin 日志：$HOME/.openviking/webadmin.log"
+    echo "Web Admin 日志：$HOME/.openviking/log/webadmin.log"
+}
+
+# 停止 AGFS 服务
+stop_agfs() {
+    if [[ -f "$HOME/.openviking/agfs.pid" ]]; then
+        local PID=$(cat "$HOME/.openviking/agfs.pid")
+        if kill -0 "$PID" 2>/dev/null; then
+            kill "$PID"
+            log_info "停止 AGFS 服务 (PID: $PID)"
+        fi
+        rm -f "$HOME/.openviking/agfs.pid"
+    else
+        pkill -f "agfs-server"
+        log_info "停止 AGFS 服务"
+    fi
 }
 
 # 停止服务
 stop_services() {
     log_step "停止服务..."
+
+    # 停止 AGFS 服务
+    stop_agfs
 
     # 停止 OpenViking 服务器
     if [[ -f "$HOME/.openviking/server.pid" ]]; then
@@ -409,6 +480,13 @@ clean() {
         log_info "清理构建产物"
     fi
 
+    # 清理部署目录
+    local CONFIG_DIR="$HOME/.openviking"
+    if [[ -d "$CONFIG_DIR/log" ]]; then
+        rm -rf "$CONFIG_DIR/log"
+        log_info "清理日志目录"
+    fi
+
     log_info "清理完成"
 }
 
@@ -429,8 +507,9 @@ main() {
             log_info "下一步:"
             log_info "  1. 编辑配置文件 $HOME/.openviking/ov.conf"
             log_info "  2. 编辑配置文件 webadmin/.env"
-            log_info "  3. 运行 $0 start 启动服务"
-            log_info "  4. 访问 http://localhost:5173"
+            log_info "  3. 部署 AGFS: bash scripts/agfs-deploy.sh deploy"
+            log_info "  4. 运行 $0 start 启动服务 (包括 AGFS)"
+            log_info "  5. 访问 http://localhost:5173"
             ;;
         deps)
             check_system

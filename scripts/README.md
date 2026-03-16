@@ -20,7 +20,6 @@
 | 软件 | 说明 |
 |------|------|
 | uv | 推荐的 Python 包管理器（更快） |
-| MongoDB | 向量数据库（OpenViking 依赖） |
 
 ## 快速开始
 
@@ -56,18 +55,20 @@ nano webadmin/.env
 ### 4. 启动服务
 
 ```bash
-# 启动所有服务
+# 启动所有服务（包括 AGFS）
 ./scripts/install.sh start
 
 # 或者单独启动
-./scripts/install.sh start openviking
-./scripts/install.sh start webadmin
+./scripts/install.sh start agfs      # 启动 AGFS 服务
+./scripts/install.sh start openviking # 启动 OpenViking 服务器
+./scripts/install.sh start webadmin   # 启动 Web Admin
 ```
 
 ### 5. 访问服务
 
+- **AGFS Server**: localhost:1833
 - **OpenViking API**: http://localhost:1933
-- **Web Admin**: http://localhost:5173
+- **Web Admin**: http://0.0.0.0:5173 (支持内网访问)
 
 ## 安装脚本命令
 
@@ -109,17 +110,24 @@ nano webadmin/.env
 
 ```json
 {
+  "server": {
+    "host": "0.0.0.0",
+    "port": 1933,
+    "root_api_key": "your-root-api-key-here"
+  },
   "storage": {
     "workspace": "/Users/yourname/.openviking/data",
     "agfs": {
-      "mode": "http-client",
-      "url": "http://localhost:3467",
-      "timeout": 300
+      "port": 1833,
+      "log_level": "warn",
+      "backend": "local",
+      "timeout": 10,
+      "retry_times": 3
     },
     "vectordb": {
-      "provider": "mongodb",
-      "connection_uri": "mongodb://localhost:27017",
-      "database": "openviking"
+      "name": "context",
+      "backend": "local",
+      "project": "default"
     }
   },
   "log": {
@@ -127,21 +135,20 @@ nano webadmin/.env
     "output": "stdout"
   },
   "embedding": {
+    "max_concurrent": 10,
     "dense": {
-      "provider": "volcengine",
+      "provider": "openai",
       "api_key": "your-api-key-here",
-      "api_base": "https://ark.cn-beijing.volces.com/api/v3",
-      "model": "doubao-embedding-vision-250615",
-      "dimension": 1024,
-      "max_concurrent": 10
+      "api_base": "http://your-embedding-server:port",
+      "model": "your-embedding-model",
+      "dimension": 1024
     }
   },
   "vlm": {
-    "provider": "volcengine",
+    "provider": "openai",
     "api_key": "your-api-key-here",
-    "api_base": "https://ark.cn-beijing.volces.com/api/v3",
-    "model": "doubao-seed-2-0-pro-260215",
-    "max_concurrent": 100
+    "api_base": "http://your-llm-server:port",
+    "model": "your-llm-model"
   }
 }
 ```
@@ -150,11 +157,26 @@ nano webadmin/.env
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
+| `server.host` | API 服务器监听地址 | `0.0.0.0` |
+| `server.port` | API 服务器端口 | `1933` |
+| `server.root_api_key` | 根 API 密钥（必需） | 需配置 |
 | `storage.workspace` | 数据存储路径 | `~/.openviking/data` |
+| `storage.agfs.port` | AGFS 服务端口 | `1833` |
+| `storage.agfs.log_level` | AGFS 日志级别 | `warn` |
+| `storage.agfs.backend` | AGFS 后端类型 | `local` |
+| `storage.vectordb.name` | 向量数据库名称 | `context` |
+| `storage.vectordb.backend` | 向量数据库后端 | `local` |
+| `embedding.max_concurrent` | 最大并发嵌入请求数 | `10` |
+| `embedding.dense.provider` | 向量模型提供商 | `openai` |
 | `embedding.dense.api_key` | 向量模型 API Key | 需配置 |
+| `embedding.dense.api_base` | 向量模型 API 地址 | 需配置 |
 | `embedding.dense.model` | 向量模型名称 | 需配置 |
+| `vlm.provider` | VLM 模型提供商 | `openai` |
 | `vlm.api_key` | VLM 模型 API Key | 需配置 |
+| `vlm.api_base` | VLM 模型 API 地址 | 需配置 |
 | `vlm.model` | VLM 模型名称 | 需配置 |
+
+**安全提示：** `root_api_key` 是启用 API 认证的必需配置。不配置此密钥时，服务器将拒绝在非 localhost 地址上启动，以防止未授权的网络访问。
 
 ### Web Admin 配置 (`webadmin/.env`)
 
@@ -165,6 +187,9 @@ VITE_API_BASE_URL=http://localhost:1933/api/v1
 # Admin credentials (stored locally, not sent to server)
 VITE_ADMIN_USERNAME=admin
 VITE_ADMIN_PASSWORD=changeme123
+
+# Root API Key for authentication
+VITE_ROOT_API_KEY=your-root-api-key-here
 ```
 
 **重要配置项：**
@@ -172,6 +197,9 @@ VITE_ADMIN_PASSWORD=changeme123
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `VITE_API_BASE_URL` | OpenViking API 地址 | `http://localhost:1933/api/v1` |
+| `VITE_ADMIN_USERNAME` | 管理用户名 | `admin` |
+| `VITE_ADMIN_PASSWORD` | 管理密码 | `changeme123` |
+| `VITE_ROOT_API_KEY` | 根 API 密钥（用于认证） | 需配置 |
 | `VITE_ADMIN_USERNAME` | 管理用户名 | `admin` |
 | `VITE_ADMIN_PASSWORD` | 管理密码 | `changeme123` |
 
@@ -182,11 +210,10 @@ VITE_ADMIN_PASSWORD=changeme123
 ### 1. 安装 Python 依赖
 
 ```bash
-# 创建虚拟环境
-python3 -m venv .venv
-source .venv/bin/activate
+# 使用 uv（推荐，更快）
+uv pip install -e . --force-reinstall
 
-# 安装 OpenViking
+# 或者使用 pip 直接安装到当前环境
 pip install -e . --force-reinstall
 ```
 
@@ -204,21 +231,45 @@ npm install
 mkdir -p ~/.openviking
 cat > ~/.openviking/ov.conf << 'EOF'
 {
+  "server": {
+    "host": "0.0.0.0",
+    "port": 1933,
+    "root_api_key": "your-root-api-key-here"
+  },
   "storage": {
-    "workspace": "~/.openviking/data"
+    "workspace": "~/.openviking/data",
+    "agfs": {
+      "port": 1833,
+      "log_level": "warn",
+      "backend": "local",
+      "timeout": 10,
+      "retry_times": 3
+    },
+    "vectordb": {
+      "name": "context",
+      "backend": "local",
+      "project": "default"
+    }
+  },
+  "log": {
+    "level": "INFO",
+    "output": "stdout"
   },
   "embedding": {
+    "max_concurrent": 10,
     "dense": {
-      "provider": "volcengine",
+      "provider": "openai",
       "api_key": "your-api-key",
-      "model": "doubao-embedding-vision-250615",
+      "api_base": "http://your-embedding-server:port",
+      "model": "your-embedding-model",
       "dimension": 1024
     }
   },
   "vlm": {
-    "provider": "volcengine",
+    "provider": "openai",
     "api_key": "your-api-key",
-    "model": "doubao-seed-2-0-pro-260215"
+    "api_base": "http://your-llm-server:port",
+    "model": "your-llm-model"
   }
 }
 EOF
@@ -325,12 +376,36 @@ cat ~/.openviking/webadmin.log
 ./scripts/install.sh restart
 ```
 
+### 6. AGFS 服务启动失败
+
+**问题**: AGFS 服务无法启动或端口 1833 被占用
+
+**解决**:
+```bash
+# 检查 AGFS 是否运行
+ps aux | grep "agfs-server"
+
+# 查看日志
+cat ~/.openviking/agfs.log
+
+# 检查端口占用
+netstat -tlnp | grep 1833
+
+# 杀死占用进程
+kill -9 <PID>
+
+# 重启 AGFS
+./scripts/install.sh restart
+```
+
 ## 日志文件
 
 | 文件 | 说明 |
 |------|------|
+| `~/.openviking/agfs.log` | AGFS 服务器日志 |
 | `~/.openviking/server.log` | OpenViking 服务器日志 |
 | `~/.openviking/webadmin.log` | Web Admin 日志 |
+| `~/.openviking/agfs.pid` | AGFS 服务器 PID |
 | `~/.openviking/server.pid` | OpenViking 服务器 PID |
 | `~/.openviking/webadmin.pid` | Web Admin PID |
 
@@ -345,9 +420,6 @@ cat ~/.openviking/webadmin.log
 
 # 删除配置文件
 rm -rf ~/.openviking
-
-# 删除虚拟环境
-rm -rf .venv
 ```
 
 ## 技术支持

@@ -413,16 +413,27 @@ set "OPENVIKING_CLI_CONFIG_FILE=%USERPROFILE%\.openviking\ovcli.conf"
 
 Now let's run a complete example to experience the core features of OpenViking.
 
+#### Deploy AGFS Server
+
+```bash
+# Deploy AGFS to $HOME/.openviking/
+bash scripts/agfs-deploy.sh deploy
+
+# Start AGFS service
+~/.openviking/agfs-services.sh start
+```
+
 #### Launch Server
 
 ```bash
+# Start OpenViking server (will use AGFS from $HOME/.openviking/)
 openviking-server
 ```
 
 or you can run in background
 
 ```bash
-nohup openviking-server > /data/log/openviking.log 2>&1 &
+nohup openviking-server > ~/.openviking/server.log 2>&1 &
 ```
 
 #### Run the CLI
@@ -435,6 +446,17 @@ ov tree viking://resources/volcengine -L 2
 # wait some time for semantic processing if not --wait
 ov find "what is openviking"
 ov grep "openviking" --uri viking://resources/volcengine/OpenViking/docs/zh
+```
+
+#### Access Web Admin (Optional)
+
+```bash
+# Start Web Admin
+cd webadmin
+npm install
+npm run dev
+
+# Access at http://localhost:5173
 ```
 
 Congratulations! You have successfully run OpenViking 🎉
@@ -457,11 +479,217 @@ openviking-server --with-bot
 ov chat
 ```
 
+### Web Admin Quick Start
+
+Web Admin provides a web-based interface for managing OpenViking:
+
+```bash
+# Deploy Web Admin to $HOME/.openviking/
+bash scripts/webadmin-deploy.sh deploy
+
+# Start Web Admin services
+~/.openviking/webadmin/services.sh start
+
+# Access at http://localhost:5173
+```
+
+For detailed Web Admin documentation, see [webadmin/README.md](webadmin/README.md).
+
 ---
 
 ## Server Deployment Details
 
 For production environments, we recommend running OpenViking as a standalone HTTP service to provide persistent, high-performance context support for your AI Agents.
+
+### Deployment Architecture
+
+OpenViking consists of three main components:
+
+```
+┌─────────────────┐         ┌──────────────────┐         ┌─────────────────┐
+│   Web Browser   │         │  WebAdmin Backend│         │ OpenViking API  │
+│                 │         │  (Node.js:3000)  │         │  (Python:1933)  │
+│  - React SPA    │────────▶│  - Config Mgmt   │────────▶│  - REST API     │
+│  - UI Components│         │  - API Proxy     │         │  - Business Log │
+└─────────────────┘         └──────────────────┘         └─────────────────┘
+         │                           │                          │
+         ▼                           ▼                          ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        AGFS Server (Port 1833)                          │
+│  - Local File System Mount                                              │
+│  - Memory File System                                                   │
+│  - Queue File System                                                    │
+│  - Key-Value Store                                                      │
+└─────────────────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    Production Environment                               │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │                        Nginx Proxy                                 │ │
+│  │  - Port 8173 → WebAdmin Frontend (5173)                           │ │
+│  │  - /api → WebAdmin Backend (3000)                                 │ │
+│  │  - Port 8933 → OpenViking API (1933)                              │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Quick Deployment
+
+**1. Deploy Services:**
+
+```bash
+# Deploy AGFS server (Go 1.22+ required)
+bash scripts/agfs-deploy.sh deploy
+
+# Deploy Web Admin (Node.js 18+ required)
+bash scripts/webadmin-deploy.sh deploy
+```
+
+**2. Configure Services:**
+
+Create configuration file `~/.openviking/ov.conf`:
+
+```json
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 1933,
+    "root_api_key": "your-root-api-key-here"
+  },
+  "storage": {
+    "workspace": "$HOME/.openviking/data",
+    "agfs": {
+      "port": 1833,
+      "log_level": "warn",
+      "backend": "local",
+      "timeout": 10,
+      "retry_times": 3
+    },
+    "vectordb": {
+      "name": "context",
+      "backend": "local",
+      "project": "default"
+    }
+  },
+  "log": {
+    "level": "INFO",
+    "output": "stdout"
+  },
+  "embedding": {
+    "max_concurrent": 10,
+    "dense": {
+      "provider": "openai_compatible",
+      "api_key": "your-api-key-here",
+      "api_base": "http://your-embedding-server:port",
+      "model": "your-embedding-model",
+      "dimension": 1024
+    }
+  },
+  "vlm": {
+    "provider": "openai",
+    "api_key": "your-api-key-here",
+    "api_base": "http://your-llm-server:port",
+    "model": "your-llm-model"
+  }
+}
+```
+
+**3. Start Services:**
+
+```bash
+# Start all services (AGFS + OpenViking Server + Web Admin)
+~/.openviking/services.sh start
+
+# Or use individual service management scripts:
+~/.openviking/agfs-services.sh start      # AGFS only
+~/.openviking/webadmin/services.sh start  # Web Admin only
+```
+
+**4. Access Services:**
+
+- **Web Admin Frontend**: http://localhost:5173
+- **OpenViking API**: http://localhost:1933
+- **AGFS Server**: http://localhost:1833
+
+### Production Environment Nginx Configuration
+
+```nginx
+# WebAdmin Frontend
+server {
+    listen 8173;
+    server_name <your-server-hostname>;
+
+    # Frontend static files
+    location / {
+        proxy_pass http://localhost:5173;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # Backend API
+    location /api {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# OpenViking API
+server {
+    listen 8933;
+    server_name <your-server-hostname>;
+
+    location / {
+        proxy_pass http://localhost:1933;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+### Deployment Directory Structure
+
+After deployment, the services are organized in `$HOME/.openviking/`:
+
+```
+~/.openviking/
+├── agfs/                          # AGFS service
+│   ├── agfs-server               # Binary executable
+│   ├── config.yaml               # Configuration file
+│   └── agfs-services.sh          # Service management script
+├── agfs_data/                     # AGFS data storage
+├── webadmin/                      # Web Admin service
+│   ├── backend/                   # Node.js backend
+│   │   ├── server.js
+│   │   ├── package.json
+│   │   └── node_modules/
+│   ├── dist/                      # Frontend build artifacts
+│   ├── node_modules/              # Frontend dependencies
+│   └── services.sh                # Service management script
+├── data/                          # OpenViking data storage
+├── log/                           # Log files
+│   ├── agfs.log
+│   ├── server.log
+│   ├── webadmin-backend.log
+│   └── webadmin-frontend.log
+├── ov.conf                        # OpenViking configuration
+├── services.sh                    # Main service management script
+├── agfs-services.sh               # AGFS service management script
+├── webadmin/services.sh           # Web Admin service management script
+└── webadmin-deploy.sh             # Web Admin deployment script
+```
 
 🚀 **Deploy OpenViking on Cloud**:
 To ensure optimal storage performance and data security, we recommend deploying on **Volcengine Elastic Compute Service (ECS)** using the **veLinux** operating system. We have prepared a detailed step-by-step guide to get you started quickly.
