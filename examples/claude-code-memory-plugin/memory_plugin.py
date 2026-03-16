@@ -47,7 +47,7 @@ class OpenVikingClient:
     def __init__(self, base_url: str = "http://localhost:1933", api_key: Optional[str] = None):
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
-        self.headers = {"X-API-Key": api_key} if api_key else {}
+        self.headers = {"X-API-Key": api_key, "Content-Type": "application/json"} if api_key else {"Content-Type": "application/json"}
 
     def _make_request(self, method: str, path: str, data: Optional[Dict] = None,
                       query_params: Optional[Dict] = None) -> Dict[str, Any]:
@@ -81,8 +81,9 @@ class OpenVikingClient:
 
             return self._make_request("POST", "/api/v1/resources", {
                 "temp_path": temp_path,
-                "target": uri,
-                "reason": reason
+                "to": uri,
+                "reason": reason,
+                "summarize": True
             })
         finally:
             if os.path.exists(temp_path):
@@ -97,7 +98,7 @@ class OpenVikingClient:
 
     def get_memory_abstract(self, uri: str) -> Dict[str, Any]:
         """获取记忆摘要"""
-        return self._make_request("GET", "/api/v1/content/abstract", {"uri": uri})
+        return self._make_request("GET", "/api/v1/content/abstract", query_params={"uri": uri})
 
     def delete_memory(self, uri: str) -> Dict[str, Any]:
         """删除记忆"""
@@ -272,7 +273,14 @@ class RemoteMemoryPlugin:
         result = self.client.get_memory_abstract(uri)
         if result.get("status") == "ok" and "result" in result:
             try:
-                data = json.loads(result["result"].get("content", "{}"))
+                # result["result"] 可能是字符串或字典
+                result_data = result["result"]
+                if isinstance(result_data, str):
+                    content = result_data
+                else:
+                    content = result_data.get("content", "{}")
+
+                data = json.loads(content)
                 data["context"] = new_context
                 data["updates"].append({
                     "time": time.time(),
@@ -280,7 +288,7 @@ class RemoteMemoryPlugin:
                 })
                 self.client.add_memory(uri, json.dumps(data, indent=2),
                                        reason=f"Update session: {self.current_session}")
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, AttributeError, TypeError):
                 # 如果内容不是 JSON，创建新的
                 new_data = {
                     "session_id": self.current_session,
@@ -348,8 +356,17 @@ class RemoteMemoryPlugin:
 
         if result.get("status") == "ok" and "result" in result:
             try:
-                return json.loads(result["result"].get("content", "{}"))
-            except json.JSONDecodeError:
+                # result["result"] 可能是字符串或字典
+                result_data = result["result"]
+                if isinstance(result_data, str):
+                    # 如果是字符串，直接使用
+                    content = result_data
+                else:
+                    # 如果是字典，获取 content 字段
+                    content = result_data.get("content", "{}")
+
+                return json.loads(content)
+            except (json.JSONDecodeError, AttributeError, TypeError):
                 return None
 
         return None

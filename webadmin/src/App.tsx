@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import ResourceManagement from './pages/ResourceManagement'
+import ResourceDetail from './pages/ResourceDetail'
 import SessionManagement from './pages/SessionManagement'
 import FileExplorer from './pages/FileExplorer'
 import SemanticSearch from './pages/SemanticSearch'
@@ -29,6 +30,7 @@ const AppContent: React.FC = () => {
       <Routes>
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/resources" element={<ProtectedRoute><ResourceManagement /></ProtectedRoute>} />
+        <Route path="/resources/:uri" element={<ProtectedRoute><ResourceDetail /></ProtectedRoute>} />
         <Route path="/sessions" element={<ProtectedRoute><SessionManagement /></ProtectedRoute>} />
         <Route path="/filesystem" element={<ProtectedRoute><FileExplorer /></ProtectedRoute>} />
         <Route path="/search" element={<ProtectedRoute><SemanticSearch /></ProtectedRoute>} />

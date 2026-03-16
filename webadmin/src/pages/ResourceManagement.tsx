@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { resourceService } from '../services/resources'
 
 interface Resource {
@@ -10,6 +11,7 @@ interface Resource {
 }
 
 const ResourceManagement: React.FC = () => {
+  const navigate = useNavigate()
   const [resources, setResources] = useState<Resource[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -55,6 +57,10 @@ const ResourceManagement: React.FC = () => {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete resource')
     }
+  }
+
+  const handleView = (uri: string) => {
+    navigate(`/resources/${encodeURIComponent(uri)}`)
   }
 
   return (
@@ -137,7 +143,12 @@ const ResourceManagement: React.FC = () => {
                   <td className="px-6 py-4 text-sm text-gray-500">{res.name}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">{res.type}</td>
                   <td className="px-6 py-4 text-sm">
-                    <button className="text-blue-600 hover:text-blue-800 mr-3">View</button>
+                    <button
+                      onClick={() => handleView(res.uri)}
+                      className="text-blue-600 hover:text-blue-800 mr-3"
+                    >
+                      View
+                    </button>
                     <button
                       onClick={() => handleDelete(res.uri)}
                       className="text-red-600 hover:text-red-800"

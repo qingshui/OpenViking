@@ -216,6 +216,159 @@ for memory in memories:
     print(f"- {memory.title}: {memory.content[:100]}...")
 ```
 
+### 分支感知功能
+
+#### 多分支代码结构区分
+
+```python
+from memory_plugin import GitBranchInfo, TeamScope, RemoteMemoryPlugin
+
+# 场景：main 分支和 feature 分支有不同的 API 设计
+
+# 1. 在 main 分支工作
+main_scope = TeamScope(
+    team_id="engineering",
+    project_id="viking",
+    branch_info=GitBranchInfo("main")
+)
+main_plugin = RemoteMemoryPlugin(
+    openviking_url="http://localhost:1933",
+    api_key="your-api-key",
+    team_scope=main_scope,
+    user_id="alice"
+)
+
+# 存储 main 分支的 API 设计
+main_plugin.store_api_interface(
+    title="create_user",
+    content="create_user(name: str, email: str) -> User",
+    params=[{"name": "name", "type": "str"}],
+    branch_aware=True
+)
+
+# 2. 切换到 feature 分支
+feature_scope = TeamScope(
+    team_id="engineering",
+    project_id="viking",
+    branch_info=GitBranchInfo("feature/user-auth")
+)
+feature_plugin = RemoteMemoryPlugin(
+    openviking_url="http://localhost:1933",
+    api_key="your-api-key",
+    team_scope=feature_scope,
+    user_id="bob"
+)
+
+# 存储 feature 分支的 API 设计（独立存储）
+feature_plugin.store_api_interface(
+    title="create_user",
+    content="create_user(name: str, email: str, phone: str) -> User",
+    params=[{"name": "name", "type": "str"}, {"name": "email", "type": "str"}, {"name": "phone", "type": "str"}],
+    branch_aware=True
+)
+
+# 3. 搜索特定分支的记忆
+main_apis = feature_plugin.search_memories("create_user", branch="main")
+feature_apis = feature_plugin.search_memories("create_user", branch="feature/user-auth")
+
+print(f"Main branch API params: {len(main_apis[0].metadata.get('params', []))}")  # 2 params
+print(f"Feature branch API params: {len(feature_apis[0].metadata.get('params', []))}")  # 3 params
+```
+
+#### 团队共享存储
+
+```python
+# 团队级别的设计文档（所有分支共享）
+team_scope = TeamScope(
+    team_id="engineering",
+    project_id="viking"
+    # 不指定 branch_info -> 团队共享
+)
+
+team_plugin = RemoteMemoryPlugin(
+    openviking_url="http://localhost:1933",
+    api_key="your-api-key",
+    team_scope=team_scope
+)
+
+# 存储团队规范（不分分支）
+team_plugin.store_code_style(
+    title="Python Standards",
+    content="# Python Standards\n- Variables: snake_case\n- Classes: PascalCase",
+    tags=["team", "standards"],
+    branch_aware=False  # 不区分分支
+)
+
+# 所有团队成员、所有分支都可以访问
+```
+
+#### 版本化管理
+
+```python
+# 自动版本化管理
+plugin = RemoteMemoryPlugin(
+    openviking_url="http://localhost:1933",
+    api_key="your-api-key"
+)
+
+# 版本 1
+plugin.store_design_doc_versioned(
+    title="System Architecture",
+    content="# Architecture v1\nOld design..."
+)
+
+# 版本 2（自动递增）
+plugin.store_design_doc_versioned(
+    title="System Architecture",
+    content="# Architecture v2\nNew design with microservices..."
+)
+
+# 版本 3（自动递增）
+plugin.store_design_doc_versioned(
+    title="System Architecture",
+    content="# Architecture v3\nAdded event-driven architecture..."
+)
+```
+
+#### 分支信息检测
+
+```python
+from memory_plugin import GitBranchInfo
+
+# 手动指定分支
+branch = GitBranchInfo("feature/user-authentication")
+print(branch.get_branch_prefix())  # "feature-user-authentication"
+print(branch.is_feature_branch())  # True
+print(branch.is_main_branch())     # False
+
+# 自动检测（从 Git 仓库）
+branch = GitBranchInfo(repo_path="/path/to/git/repo")
+# 自动从 Git 获取当前分支名称
+```
+
+#### 使用 CodeAnalyzer 进行自定义分析
+
+```python
+from memory_plugin import CodeAnalyzer
+
+analyzer = CodeAnalyzer()
+
+# 检测文件语言
+lang = analyzer.detect_language("file.py")  # "python"
+
+# 分析单个文件
+result = analyzer.analyze_file("/path/to/file.py")
+print(f"Functions: {len(result['functions'])}")
+print(f"Classes: {len(result['classes'])}")
+print(f"Imports: {result['imports']}")
+
+# 分析整个目录
+dir_result = analyzer.analyze_directory("/path/to/project", ['.py', '.js'])
+print(f"Total files: {dir_result['summary']['total_files']}")
+print(f"Total functions: {dir_result['summary']['total_functions']}")
+print(f"Libraries: {dir_result['summary']['libraries']}")
+```
+
 ## 优势
 
 1. **无需本地存储**：所有记忆存储在 OpenViking 服务
