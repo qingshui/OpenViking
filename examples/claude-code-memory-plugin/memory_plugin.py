@@ -1,13 +1,13 @@
 """
 Claude Code Memory Plugin
-基于 OpenViking API 实现自动内存记忆功能
+基于远程 OpenViking API 的轻量级内存记忆插件
+
+无需本地安装，所有记忆直接存储到远程 OpenViking 服务。
 
 支持功能：
-- 自动更新内存记忆
-- 设计文档存储
-- 代码规范存储
-- 函数 API 接口存储
+- 远程存储设计文档、代码规范、API 接口
 - 会话记忆管理
+- 语义搜索
 """
 
 import json
@@ -15,10 +15,8 @@ import time
 import hashlib
 import urllib.request
 import urllib.error
-import tempfile
-import os
 from typing import Optional, Dict, Any, List
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -35,19 +33,16 @@ class MemoryType(Enum):
 @dataclass
 class MemoryEntry:
     """记忆条目"""
-    id: str
     title: str
     content: str
     memory_type: MemoryType
     tags: List[str]
-    created_at: float
-    updated_at: float
     metadata: Dict[str, Any]
     uri: Optional[str] = None
 
 
 class OpenVikingClient:
-    """OpenViking API 客户端"""
+    """OpenViking API 客户端 - 轻量级远程调用"""
 
     def __init__(self, base_url: str = "http://localhost:1933", api_key: Optional[str] = None):
         self.base_url = base_url.rstrip('/')
@@ -72,189 +67,182 @@ class OpenVikingClient:
         except urllib.error.HTTPError as e:
             return {"error": str(e), "code": e.code}
 
-    def add_resource(self, uri: str, content: str, wait: bool = False) -> Dict[str, Any]:
-        """添加资源"""
-        temp_dir = tempfile.gettempdir()
-        temp_path = os.path.join(temp_dir, f"openviking_temp_{int(time.time())}.txt")
+    def add_memory(self, uri: str, content: str, reason: str = "Memory storage") -> Dict[str, Any]:
+        """向远程 OpenViking 存储记忆"""
+        # 使用临时文件方式存储内容到 OpenViking
+        import tempfile
+        import os
 
-        with open(temp_path, 'w', encoding='utf-8') as f:
-            f.write(content)
+        temp_path = os.path.join(tempfile.gettempdir(), f"mv_temp_{int(time.time())}.txt")
 
         try:
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+
             return self._make_request("POST", "/api/v1/resources", {
                 "temp_path": temp_path,
                 "target": uri,
-                "reason": "Memory storage",
-                "wait": wait
+                "reason": reason
             })
-        except Exception as e:
+        finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
-            raise e
 
-    def search_find(self, query: str, limit: int = 10) -> Dict[str, Any]:
-        """搜索查找"""
+    def search_memories(self, query: str, limit: int = 10) -> Dict[str, Any]:
+        """搜索远程记忆"""
         return self._make_request("POST", "/api/v1/search/find", {
             "query": query,
             "limit": limit
         })
 
-    def fs_ls(self, uri: str) -> Dict[str, Any]:
-        """列出文件"""
-        return self._make_request("GET", "/api/v1/fs/ls", {"uri": uri})
-
-    def content_read(self, uri: str) -> Dict[str, Any]:
-        """读取内容"""
-        return self._make_request("GET", "/api/v1/content/read", {"uri": uri})
-
-    def content_abstract(self, uri: str) -> Dict[str, Any]:
-        """获取摘要"""
+    def get_memory_abstract(self, uri: str) -> Dict[str, Any]:
+        """获取记忆摘要"""
         return self._make_request("GET", "/api/v1/content/abstract", {"uri": uri})
 
-    def content_overview(self, uri: str) -> Dict[str, Any]:
-        """获取概览"""
-        return self._make_request("GET", "/api/v1/content/overview", {"uri": uri})
-
-    def delete_resource(self, uri: str) -> Dict[str, Any]:
-        """删除资源"""
+    def delete_memory(self, uri: str) -> Dict[str, Any]:
+        """删除记忆"""
         return self._make_request("DELETE", "/api/v1/fs", {"uri": uri, "recursive": True})
 
 
-class MemoryManager:
-    """记忆管理器"""
-
-    def __init__(self, client: OpenVikingClient):
-        self.client = client
-        self.base_uri = "viking://resources/memories/"
-
-    def _generate_id(self, title: str) -> str:
-        """生成唯一 ID"""
-        return hashlib.md5(f"{title}{time.time()}".encode()).hexdigest()[:12]
-
-    def _generate_uri(self, memory_type: MemoryType, title: str) -> str:
-        """生成 URI"""
-        safe_title = "".join(c for c in title if c.isalnum() or c in '_-').lower()
-        return f"{self.base_uri}{memory_type.value}/{safe_title}"
-
-    def create_memory(self, title: str, content: str, memory_type: MemoryType,
-                      tags: Optional[List[str]] = None, metadata: Optional[Dict] = None) -> MemoryEntry:
-        """创建记忆"""
-        memory_id = self._generate_id(title)
-        uri = self._generate_uri(memory_type, title)
-
-        entry = MemoryEntry(
-            id=memory_id,
-            title=title,
-            content=content,
-            memory_type=memory_type,
-            tags=tags or [],
-            created_at=time.time(),
-            updated_at=time.time(),
-            metadata=metadata or {},
-            uri=uri
-        )
-
-        # 如果 URI 已存在，先删除
-        try:
-            self.client.delete_resource(uri)
-        except:
-            pass
-
-        # 存储到 OpenViking
-        result = self.client.add_resource(uri, content, wait=False)
-        if result.get("status") == "error":
-            errors = result.get("result", {}).get("errors", [result.get("error", "Unknown error")])
-            raise Exception(f"Failed to store memory: {errors}")
-
-        return entry
-
-    def search_memories(self, query: str, memory_type: Optional[MemoryType] = None,
-                        limit: int = 10) -> List[MemoryEntry]:
-        """搜索记忆"""
-        result = self.client.search_find(query, limit=limit)
-
-        if "error" in result or "result" not in result:
-            return []
-
-        memories = []
-        for resource in result.get("result", {}).get("resources", []):
-            uri = resource.get("uri", "")
-            if not uri.endswith(".abstract.md") and not uri.endswith(".overview.md"):
-                memories.append(self._parse_search_result(resource))
-
-        return memories
-
-    def _parse_search_result(self, resource: Dict) -> MemoryEntry:
-        """解析搜索结果"""
-        uri = resource.get("uri", "")
-        parts = uri.split("/")
-        if len(parts) >= 4:
-            title = parts[-1].replace(".md", "").replace("_", " ").title()
-        else:
-            title = "Unknown"
-
-        return MemoryEntry(
-            id="",
-            title=title,
-            content=resource.get("abstract", ""),
-            memory_type=MemoryType.SESSION,
-            tags=[],
-            created_at=0,
-            updated_at=0,
-            metadata={"score": resource.get("score", 0)},
-            uri=uri
-        )
-
-    def get_memory(self, uri: str) -> Optional[MemoryEntry]:
-        """获取记忆"""
-        result = self.client.content_abstract(uri)
-        if "error" in result or "result" not in result:
-            return None
-
-        data = result.get("result", {})
-        return MemoryEntry(
-            id="",
-            title=uri.split("/")[-1].replace(".md", "").title(),
-            content=data.get("content", ""),
-            memory_type=MemoryType.SESSION,
-            tags=[],
-            created_at=0,
-            updated_at=0,
-            metadata={},
-            uri=uri
-        )
-
-    def update_memory(self, uri: str, content: str) -> Optional[MemoryEntry]:
-        """更新记忆"""
-        # 删除旧资源
-        self.client.delete_resource(uri)
-
-        # 添加新资源
-        result = self.client.add_resource(uri, content, wait=False)
-        if result.get("status") == "error":
-            return None
-
-        return self.get_memory(uri)
-
-    def delete_memory(self, uri: str) -> bool:
-        """删除记忆"""
-        result = self.client.delete_resource(uri)
-        return result.get("status") == "ok"
-
-
-class ClaudeCodeMemoryPlugin:
-    """Claude Code 记忆插件"""
+class RemoteMemoryPlugin:
+    """远程记忆插件 - 所有数据存储在 OpenViking 服务"""
 
     def __init__(self, openviking_url: str = "http://localhost:1933",
                  api_key: Optional[str] = None):
+        """
+        初始化远程记忆插件
+
+        Args:
+            openviking_url: OpenViking API 地址
+            api_key: API 密钥
+        """
         self.client = OpenVikingClient(openviking_url, api_key)
-        self.manager = MemoryManager(self.client)
+        self.base_uri = "viking://resources/memories/"
         self.current_session = None
 
+    def _generate_uri(self, memory_type: MemoryType, title: str) -> str:
+        """生成记忆 URI"""
+        safe_title = "".join(c for c in title if c.isalnum() or c in '_-').lower()
+        return f"{self.base_uri}{memory_type.value}/{safe_title}"
+
+    def store_design_doc(self, title: str, content: str, tags: Optional[List[str]] = None,
+                         remote_key: Optional[str] = None) -> MemoryEntry:
+        """
+        存储设计文档到远程 OpenViking
+
+        Args:
+            title: 文档标题
+            content: 文档内容
+            tags: 标签列表
+            remote_key: 自定义远程键（用于复用同一记忆）
+
+        Returns:
+            MemoryEntry 对象
+        """
+        key = remote_key or f"design_doc:{title}"
+        uri = self._generate_uri(MemoryType.DESIGN_DOC, key)
+
+        metadata = {"tags": tags or ["design", "architecture"], "type": "design_doc"}
+
+        result = self.client.add_memory(uri, content, reason=f"Store design doc: {title}")
+        if result.get("status") == "error":
+            raise Exception(f"Failed to store design doc: {result.get('result', {}).get('errors', [])}")
+
+        return MemoryEntry(
+            title=title,
+            content=content,
+            memory_type=MemoryType.DESIGN_DOC,
+            tags=metadata["tags"],
+            metadata=metadata,
+            uri=uri
+        )
+
+    def store_code_style(self, title: str, content: str, tags: Optional[List[str]] = None,
+                         remote_key: Optional[str] = None) -> MemoryEntry:
+        """
+        存储代码规范到远程 OpenViking
+
+        Args:
+            title: 规范标题
+            content: 规范内容
+            tags: 标签列表
+            remote_key: 自定义远程键
+
+        Returns:
+            MemoryEntry 对象
+        """
+        key = remote_key or f"code_style:{title}"
+        uri = self._generate_uri(MemoryType.CODE_STYLE, key)
+
+        metadata = {"tags": tags or ["code", "style", "convention"], "type": "code_style"}
+
+        result = self.client.add_memory(uri, content, reason=f"Store code style: {title}")
+        if result.get("status") == "error":
+            raise Exception(f"Failed to store code style: {result.get('result', {}).get('errors', [])}")
+
+        return MemoryEntry(
+            title=title,
+            content=content,
+            memory_type=MemoryType.CODE_STYLE,
+            tags=metadata["tags"],
+            metadata=metadata,
+            uri=uri
+        )
+
+    def store_api_interface(self, title: str, content: str,
+                            params: Optional[List[Dict]] = None,
+                            returns: Optional[Dict] = None,
+                            tags: Optional[List[str]] = None,
+                            remote_key: Optional[str] = None) -> MemoryEntry:
+        """
+        存储 API 接口到远程 OpenViking
+
+        Args:
+            title: 接口名称
+            content: 接口签名
+            params: 参数列表
+            returns: 返回值信息
+            tags: 标签列表
+            remote_key: 自定义远程键
+
+        Returns:
+            MemoryEntry 对象
+        """
+        key = remote_key or f"api_interface:{title}"
+        uri = self._generate_uri(MemoryType.API_INTERFACE, key)
+
+        metadata = {
+            "params": params or [],
+            "returns": returns or {},
+            "tags": tags or ["api", "function"],
+            "type": "api_interface"
+        }
+
+        content_with_meta = f"## Signature\n{content}\n\n## Params\n{json.dumps(params, indent=2)}\n\n## Returns\n{json.dumps(returns, indent=2)}"
+
+        result = self.client.add_memory(uri, content_with_meta, reason=f"Store API: {title}")
+        if result.get("status") == "error":
+            raise Exception(f"Failed to store API: {result.get('result', {}).get('errors', [])}")
+
+        return MemoryEntry(
+            title=title,
+            content=content,
+            memory_type=MemoryType.API_INTERFACE,
+            tags=metadata["tags"],
+            metadata=metadata,
+            uri=uri
+        )
+
     def initialize_session(self, session_id: str, context: str) -> None:
-        """初始化会话"""
+        """
+        初始化会话（存储在远程）
+
+        Args:
+            session_id: 会话 ID
+            context: 初始上下文
+        """
         self.current_session = session_id
-        uri = f"{self.manager.base_uri}session/{session_id}"
+        uri = f"{self.base_uri}session/{session_id}"
 
         session_data = {
             "session_id": session_id,
@@ -263,99 +251,135 @@ class ClaudeCodeMemoryPlugin:
             "updates": []
         }
 
-        self.manager.create_memory(
-            title=f"Session {session_id}",
-            content=json.dumps(session_data),
-            memory_type=MemoryType.SESSION,
-            metadata={"session_id": session_id}
-        )
+        result = self.client.add_memory(uri, json.dumps(session_data, indent=2),
+                                        reason=f"Initialize session: {session_id}")
+        if result.get("status") == "error":
+            print(f"Warning: Failed to initialize session: {result.get('result', {}).get('errors', [])}")
 
     def update_session(self, new_context: str) -> None:
-        """更新会话"""
+        """
+        更新会话上下文（远程更新）
+
+        Args:
+            new_context: 新的上下文
+        """
         if not self.current_session:
             return
 
-        uri = f"{self.manager.base_uri}session/{self.current_session}"
-        memory = self.manager.get_memory(uri)
+        uri = f"{self.base_uri}session/{self.current_session}"
 
-        if memory:
-            data = json.loads(memory.content)
-            data["context"] = new_context
-            data["updates"].append({
-                "time": time.time(),
-                "context": new_context
-            })
-            self.manager.update_memory(uri, json.dumps(data))
+        # 先获取当前会话
+        result = self.client.get_memory_abstract(uri)
+        if result.get("status") == "ok" and "result" in result:
+            try:
+                data = json.loads(result["result"].get("content", "{}"))
+                data["context"] = new_context
+                data["updates"].append({
+                    "time": time.time(),
+                    "context": new_context
+                })
+                self.client.add_memory(uri, json.dumps(data, indent=2),
+                                       reason=f"Update session: {self.current_session}")
+            except json.JSONDecodeError:
+                # 如果内容不是 JSON，创建新的
+                new_data = {
+                    "session_id": self.current_session,
+                    "context": new_context,
+                    "start_time": time.time(),
+                    "updates": [{"time": time.time(), "context": new_context}]
+                }
+                self.client.add_memory(uri, json.dumps(new_data, indent=2),
+                                       reason=f"Update session: {self.current_session}")
 
-    def store_design_doc(self, title: str, content: str, tags: Optional[List[str]] = None) -> MemoryEntry:
-        """存储设计文档"""
-        return self.manager.create_memory(
-            title=title,
-            content=content,
-            memory_type=MemoryType.DESIGN_DOC,
-            tags=tags or ["design", "architecture"]
-        )
+    def search_memories(self, query: str, memory_types: Optional[List[MemoryType]] = None,
+                        limit: int = 5) -> List[MemoryEntry]:
+        """
+        搜索远程记忆
 
-    def store_code_style(self, title: str, content: str, tags: Optional[List[str]] = None) -> MemoryEntry:
-        """存储代码规范"""
-        return self.manager.create_memory(
-            title=title,
-            content=content,
-            memory_type=MemoryType.CODE_STYLE,
-            tags=tags or ["code", "style", "convention"]
-        )
+        Args:
+            query: 搜索关键词
+            memory_types: 过滤的记忆类型
+            limit: 返回数量限制
 
-    def store_api_interface(self, title: str, content: str,
-                            params: Optional[List[Dict]] = None,
-                            returns: Optional[Dict] = None,
-                            tags: Optional[List[str]] = None) -> MemoryEntry:
-        """存储函数 API 接口"""
-        metadata = {
-            "params": params or [],
-            "returns": returns or {},
-            "signature": content.split(":")[0] if ":" in content else content
-        }
+        Returns:
+            MemoryEntry 列表
+        """
+        result = self.client.search_memories(query, limit=limit)
 
-        return self.manager.create_memory(
-            title=title,
-            content=content,
-            memory_type=MemoryType.API_INTERFACE,
-            tags=tags or ["api", "function"],
-            metadata=metadata
-        )
+        if result.get("status") != "ok" or "result" not in result:
+            return []
 
-    def get_relevant_memories(self, context: str, memory_types: Optional[List[MemoryType]] = None,
-                              limit: int = 5) -> List[MemoryEntry]:
-        """获取相关记忆"""
         memories = []
+        for resource in result.get("result", {}).get("resources", []):
+            uri = resource.get("uri", "")
+            if not uri.endswith(".abstract.md") and not uri.endswith(".overview.md"):
+                # 从 URI 推断记忆类型
+                parts = uri.split("/")
+                if len(parts) >= 4:
+                    mem_type_str = parts[3]
+                    try:
+                        mem_type = MemoryType(mem_type_str)
+                    except ValueError:
+                        mem_type = MemoryType.SESSION
 
-        if memory_types:
-            for mem_type in memory_types:
-                results = self.manager.search_memories(context, mem_type, limit=limit)
-                memories.extend(results)
-        else:
-            memories = self.manager.search_memories(context, limit=limit)
+                memories.append(MemoryEntry(
+                    title=parts[-1].replace(".md", "").replace("_", " ").title(),
+                    content=resource.get("abstract", ""),
+                    memory_type=mem_type,
+                    tags=[],
+                    metadata={"score": resource.get("score", 0)},
+                    uri=uri
+                ))
 
         return memories[:limit]
 
-    def get_memory_summary(self, uri: str) -> Optional[Dict]:
-        """获取记忆摘要"""
-        abstract_result = self.client.content_abstract(uri)
-        overview_result = self.client.content_overview(uri)
+    def get_session(self, session_id: str) -> Optional[Dict]:
+        """
+        获取会话数据（从远程）
 
-        summary = {}
-        if "result" in abstract_result:
-            summary["abstract"] = abstract_result.get("result", {})
-        if "result" in overview_result:
-            summary["overview"] = overview_result.get("result", {})
+        Args:
+            session_id: 会话 ID
 
-        return summary
+        Returns:
+            会话数据字典或 None
+        """
+        uri = f"{self.base_uri}session/{session_id}"
+        result = self.client.get_memory_abstract(uri)
+
+        if result.get("status") == "ok" and "result" in result:
+            try:
+                return json.loads(result["result"].get("content", "{}"))
+            except json.JSONDecodeError:
+                return None
+
+        return None
+
+    def get_all_memories(self, memory_type: Optional[MemoryType] = None) -> List[str]:
+        """
+        列出所有记忆 URI
+
+        Args:
+            memory_type: 过滤的记忆类型
+
+        Returns:
+            URI 列表
+        """
+        if memory_type:
+            uri = f"{self.base_uri}{memory_type.value}/"
+        else:
+            uri = self.base_uri
+
+        result = self.client._make_request("GET", "/api/v1/fs/ls", {"uri": uri})
+        if result.get("status") == "ok" and "result" in result:
+            return [item.get("uri") for item in result["result"].get("items", [])]
+
+        return []
 
 
 # 使用示例
 if __name__ == "__main__":
-    # 初始化插件
-    plugin = ClaudeCodeMemoryPlugin(
+    # 初始化插件（使用远程 OpenViking 服务）
+    plugin = RemoteMemoryPlugin(
         openviking_url="http://localhost:1933",
         api_key="6z_TTilwV_CM16qV3ExG1PAVFCptrLp-ver8Xb1lGD8"
     )
@@ -369,36 +393,14 @@ if __name__ == "__main__":
     # 存储设计文档
     plugin.store_design_doc(
         title="Project Architecture",
-        content="""
-        # Project Architecture
-
-        ## Overview
-        This is a Python web application built with FastAPI.
-
-        ## Components
-        - API Server: FastAPI
-        - Database: PostgreSQL
-        - Cache: Redis
-        """,
+        content="# Project Architecture\n\n## Overview\nThis is a Python web application built with FastAPI.",
         tags=["architecture", "backend"]
     )
 
     # 存储代码规范
     plugin.store_code_style(
         title="Python Coding Standards",
-        content="""
-        # Python Coding Standards
-
-        ## Naming Conventions
-        - Variables: snake_case
-        - Classes: PascalCase
-        - Constants: UPPER_SNAKE_CASE
-
-        ## Code Structure
-        - Maximum line length: 88 characters
-        - Use type hints
-        - Follow PEP 8
-        """,
+        content="# Python Coding Standards\n\n## Naming Conventions\n- Variables: snake_case\n- Classes: PascalCase",
         tags=["python", "standards"]
     )
 
@@ -415,8 +417,10 @@ if __name__ == "__main__":
     )
 
     # 搜索相关记忆
-    relevant_memories = plugin.get_relevant_memories("Python FastAPI database")
+    relevant_memories = plugin.search_memories("Python FastAPI database")
     print(f"Found {len(relevant_memories)} relevant memories")
+    for m in relevant_memories:
+        print(f"  - {m.title} [{m.memory_type.value}]")
 
     # 更新会话
     plugin.update_session("正在开发 Python Web 应用，使用 FastAPI 框架和 PostgreSQL 数据库")
