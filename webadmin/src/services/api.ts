@@ -39,4 +39,24 @@ apiClient.interceptors.response.use(
   }
 )
 
+// Queue status API
+export const queueService = {
+  getStatus: async () => {
+    const response = await apiClient.post('', {
+      method: 'GET',
+      path: '/api/v1/queue/status'
+    })
+    return response.data?.data?.result
+  },
+
+  getQueueStats: async (queueName: string) => {
+    const response = await apiClient.post('', {
+      method: 'GET',
+      path: '/api/v1/queue/stats',
+      query: { queue: queueName }
+    })
+    return response.data?.data?.result
+  }
+}
+
 export default apiClient

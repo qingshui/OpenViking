@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { resourceService } from '../services/resources'
+import { queueService } from '../services/api'
 
 interface StorageStats {
   totalResources: number
@@ -14,6 +15,35 @@ interface QuickStats {
   totalSize: string
 }
 
+interface QueueStats {
+  semantic: {
+    pending: number
+    processing: number
+    completed: number
+    failed: number
+  }
+  embedding: {
+    pending: number
+    processing: number
+    completed: number
+    failed: number
+  }
+}
+
+interface QueueStatus {
+  queues: QueueStats
+  services: {
+    embedding: {
+      status: 'running' | 'stopped' | 'error'
+      last_error?: string
+    }
+    semantic: {
+      status: 'running' | 'stopped' | 'error'
+      last_error?: string
+    }
+  }
+}
+
 const Dashboard: React.FC = () => {
   const [stats, setStats] = useState<StorageStats>({
     totalResources: 0,
@@ -26,12 +56,13 @@ const Dashboard: React.FC = () => {
     sessions: 0,
     totalSize: '0 MB'
   })
+  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    loadStats()
-    const interval = setInterval(loadStats, 30000)
+    loadAllStats()
+    const interval = setInterval(loadAllStats, 30000)
     return () => clearInterval(interval)
   }, [])
 
@@ -44,11 +75,11 @@ const Dashboard: React.FC = () => {
       const resources = await resourceService.list('viking://resources/', 1000)
 
       // 计算统计数据
-      const totalSize = resources.reduce((sum, r) => sum + (r.size || 0), 0)
+      const totalSize = resources.reduce((sum: number, r: any) => sum + (r.size || 0), 0)
       const resourcesByType: Record<string, number> = {}
       const resourcesByUri: Record<string, number> = {}
 
-      resources.forEach(r => {
+      resources.forEach((r: any) => {
         // 按类型统计
         const type = r.type || 'unknown'
         resourcesByType[type] = (resourcesByType[type] || 0) + 1
@@ -77,6 +108,19 @@ const Dashboard: React.FC = () => {
     }
   }
 
+  const loadQueueStatus = async () => {
+    try {
+      const status = await queueService.getStatus()
+      setQueueStatus(status)
+    } catch (err) {
+      console.error('Failed to load queue status:', err)
+    }
+  }
+
+  const loadAllStats = async () => {
+    await Promise.all([loadStats(), loadQueueStatus()])
+  }
+
   const formatSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`
@@ -96,6 +140,52 @@ const Dashboard: React.FC = () => {
       semantic: 'cyan'
     }
     return colors[type] || 'gray'
+  }
+
+  const getQueueStatusColor = (status: string): string => {
+    const colors: Record<string, string> = {
+      running: 'green',
+      stopped: 'red',
+      error: 'orange'
+    }
+    return colors[status] || 'gray'
+  }
+
+  const QueueStatusCard: React.FC<{
+    title: string
+    stats: { pending: number; processing: number; completed: number; failed: number }
+    status: 'running' | 'stopped' | 'error'
+  }> = ({ title, stats, status }) => {
+    const total = stats.pending + stats.processing + stats.completed + stats.failed
+    return (
+      <div className="bg-white p-4 rounded-lg shadow-sm border">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="font-semibold text-gray-800">{title}</h4>
+          <span className={`px-2 py-1 rounded-full text-xs font-medium bg-${getQueueStatusColor(status)}-100 text-${getQueueStatusColor(status)}-800`}>
+            {status}
+          </span>
+        </div>
+        <div className="grid grid-cols-4 gap-2 text-center">
+          <div className="bg-yellow-50 rounded p-2">
+            <div className="text-2xl font-bold text-yellow-700">{stats.pending}</div>
+            <div className="text-xs text-yellow-600">Pending</div>
+          </div>
+          <div className="bg-blue-50 rounded p-2">
+            <div className="text-2xl font-bold text-blue-700">{stats.processing}</div>
+            <div className="text-xs text-blue-600">Processing</div>
+          </div>
+          <div className="bg-green-50 rounded p-2">
+            <div className="text-2xl font-bold text-green-700">{stats.completed}</div>
+            <div className="text-xs text-green-600">Completed</div>
+          </div>
+          <div className="bg-red-50 rounded p-2">
+            <div className="text-2xl font-bold text-red-700">{stats.failed}</div>
+            <div className="text-xs text-red-600">Failed</div>
+          </div>
+        </div>
+        <div className="mt-2 text-xs text-gray-500 text-center">Total: {total}</div>
+      </div>
+    )
   }
 
   return (
@@ -176,6 +266,30 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* 队列状态 */}
+          {queueStatus && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+                Queue Status
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <QueueStatusCard
+                  title="Semantic Queue"
+                  stats={queueStatus.queues.semantic}
+                  status={queueStatus.services.semantic.status}
+                />
+                <QueueStatusCard
+                  title="Embedding Queue"
+                  stats={queueStatus.queues.embedding}
+                  status={queueStatus.services.embedding.status}
+                />
+              </div>
+            </div>
+          )}
 
           {/* 详细统计 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
