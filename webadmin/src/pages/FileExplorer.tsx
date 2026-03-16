@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { filesystemService } from '../services/filesystem'
+import apiClient from '../services/api'
 
 interface FileNode {
   uri: string
@@ -12,7 +13,7 @@ const FileExplorer: React.FC = () => {
   const [files, setFiles] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [content, setContent] = useState('')
+  const [content, setContent] = useState<string>('')
   const [showContent, setShowContent] = useState(false)
   const [contentLevel, setContentLevel] = useState<'l0' | 'l1' | 'l2'>('l0')
 
@@ -38,15 +39,38 @@ const FileExplorer: React.FC = () => {
   const handleLoadContent = async (uri: string, level: 'l0' | 'l1' | 'l2') => {
     try {
       setContentLevel(level)
-      let data: string
+      let content: string = ''
+
       if (level === 'l0') {
-        data = await filesystemService.list(uri) // 可能需要使用专门的 L0 接口
+        // L0: Abstract
+        const response = await apiClient.post('', {
+          method: 'GET',
+          path: '/api/v1/content/abstract',
+          query: { uri }
+        })
+        const data = response.data?.data?.result
+        content = typeof data === 'string' ? data : data?.content || ''
       } else if (level === 'l1') {
-        data = await filesystemService.list(uri) // 可能需要使用专门的 L1 接口
+        // L1: Overview
+        const response = await apiClient.post('', {
+          method: 'GET',
+          path: '/api/v1/content/overview',
+          query: { uri }
+        })
+        const data = response.data?.data?.result
+        content = typeof data === 'string' ? data : data?.content || ''
       } else {
-        data = await filesystemService.list(uri) // 可能需要使用专门的 L2 接口
+        // L2: Full content
+        const response = await apiClient.post('', {
+          method: 'GET',
+          path: '/api/v1/content/read',
+          query: { uri, offset: 0, limit: -1 }
+        })
+        const data = response.data?.data?.result
+        content = typeof data === 'string' ? data : data?.content || ''
       }
-      setContent(data)
+
+      setContent(content)
       setShowContent(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load content')
