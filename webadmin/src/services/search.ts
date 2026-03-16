@@ -10,36 +10,38 @@ export interface SearchResult {
 
 export const searchService = {
   find: async (query: string, limit: number = 10, target_uri?: string) => {
-    const response = await apiClient.post('/search/find', {
-      query,
-      limit,
-      target_uri
+    const response = await apiClient.post('', {
+      method: 'POST',
+      path: '/api/v1/search/find',
+      data: { query, limit, target_uri }
     })
-    return response.data?.result?.matched_contexts || []
+    return response.data?.data?.result?.matched_contexts || []
   },
 
   search: async (query: string, session_id: string, limit: number = 10) => {
-    const response = await apiClient.post('/search/search', {
-      query,
-      session_id,
-      limit
+    const response = await apiClient.post('', {
+      method: 'POST',
+      path: '/api/v1/search/search',
+      data: { query, session_id, limit }
     })
-    return response.data?.result?.matched_contexts || []
+    return response.data?.data?.result?.matched_contexts || []
   },
 
   grep: async (uri: string, pattern: string) => {
-    const response = await apiClient.post('/search/grep', {
-      uri,
-      pattern
+    const response = await apiClient.post('', {
+      method: 'POST',
+      path: '/api/v1/search/grep',
+      data: { uri, pattern }
     })
-    return response.data?.result
+    return response.data?.data?.result
   },
 
   glob: async (pattern: string, uri: string = 'viking://') => {
-    const response = await apiClient.post('/search/glob', {
-      pattern,
-      uri
+    const response = await apiClient.post('', {
+      method: 'POST',
+      path: '/api/v1/search/glob',
+      data: { pattern, uri }
     })
-    return response.data?.result
+    return response.data?.data?.result
   }
 }

@@ -28,10 +28,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = async (username: string, password: string) => {
     const ADMIN_USER = import.meta.env.VITE_ADMIN_USERNAME || 'admin'
     const ADMIN_PASS = import.meta.env.VITE_ADMIN_PASSWORD || ''
+    const ROOT_API_KEY = import.meta.env.VITE_ROOT_API_KEY || ''
 
     if (username === ADMIN_USER && password === ADMIN_PASS) {
-      const apiKey = localStorage.getItem('ov_api_key') || crypto.randomUUID()
-      localStorage.setItem('ov_api_key', apiKey)
+      // Use the ROOT_API_KEY from environment or stored value
+      const apiKey = ROOT_API_KEY || localStorage.getItem('ov_api_key')
+      if (apiKey) {
+        localStorage.setItem('ov_api_key', apiKey)
+      }
       localStorage.setItem('ov_username', username)
       setIsAuthenticated(true)
       setUsername(username)

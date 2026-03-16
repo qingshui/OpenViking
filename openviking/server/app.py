@@ -9,6 +9,8 @@ from typing import Callable, Optional
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp
 
 from openviking.server.api_keys import APIKeyManager
 from openviking.server.config import ServerConfig, load_server_config, validate_server_config
@@ -35,6 +37,38 @@ from openviking_cli.exceptions import OpenVikingError
 from openviking_cli.utils import get_logger
 
 logger = get_logger(__name__)
+
+
+class DynamicCORSMiddleware(BaseHTTPMiddleware):
+    """Custom CORS middleware that supports wildcard origin with credentials."""
+
+    def __init__(self, app: ASGIApp, allow_origins: list[str], allow_credentials: bool = True):
+        super().__init__(app)
+        self.allow_origins = allow_origins
+        self.allow_credentials = allow_credentials
+
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin")
+        response = await call_next(request)
+
+        # If wildcard is configured and credentials are allowed, dynamically set the origin
+        if "*" in self.allow_origins and self.allow_credentials and origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Vary"] = "Origin"
+        elif "*" in self.allow_origins:
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Vary"] = "Origin"
+        elif origin in self.allow_origins:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Vary"] = "Origin"
+
+        # Add other CORS headers
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        if self.allow_credentials:
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+
+        return response
 
 
 def create_app(
@@ -107,13 +141,9 @@ def create_app(
     app.state.config = config
 
     # Add CORS middleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=config.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # Use dynamic CORS middleware to support wildcard with credentials
+    allow_origins = config.cors_origins if config.cors_origins else ["*"]
+    app.add_middleware(DynamicCORSMiddleware, allow_origins=allow_origins, allow_credentials=True)
 
     # Add request timing middleware
     @app.middleware("http")

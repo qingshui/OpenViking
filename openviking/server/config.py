@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 class ServerConfig:
     """Server configuration (from the ``server`` section of ov.conf)."""
 
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.0"
     port: int = 1933
     workers: int = 1
     root_api_key: Optional[str] = None
@@ -69,7 +69,7 @@ def load_server_config(config_path: Optional[str] = None) -> ServerConfig:
     server_data = data.get("server", {})
 
     config = ServerConfig(
-        host=server_data.get("host", "127.0.0.1"),
+        host=server_data.get("host", "0.0.0.0"),
         port=server_data.get("port", 1933),
         workers=server_data.get("workers", 1),
         root_api_key=server_data.get("root_api_key"),

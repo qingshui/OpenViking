@@ -1,23 +1,32 @@
 import axios from 'axios'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:1933/api/v1'
+// Backend service API base URL
+const BACKEND_API_BASE = window.location.origin
 
 export const apiClient = axios.create({
-  baseURL: API_BASE,
+  baseURL: `${BACKEND_API_BASE}/api/proxy`,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json'
   }
 })
 
+// Add API key header for proxy requests
 apiClient.interceptors.request.use((config) => {
   const token = localStorage.getItem('ov_api_key')
   if (token) {
-    config.headers['X-API-Key'] = token
+    // Add the API key to the request body for proxy
+    if (config.data && typeof config.data === 'object') {
+      config.data.headers = {
+        'X-API-Key': token,
+        ...config.data.headers
+      }
+    }
   }
   return config
 })
 
+// Handle 401 errors
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
