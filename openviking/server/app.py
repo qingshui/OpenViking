@@ -6,11 +6,13 @@ import time
 from contextlib import asynccontextmanager
 from typing import Callable, Optional
 
-from fastapi import FastAPI, Request
+import json
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
+import httpx
 
 from openviking.server.api_keys import APIKeyManager
 from openviking.server.config import ServerConfig, load_server_config, validate_server_config
@@ -152,6 +154,73 @@ def create_app(
         response = await call_next(request)
         process_time = time.time() - start_time
         response.headers["X-Process-Time"] = str(process_time)
+        return response
+
+    # Add proxy middleware for /api/proxy
+    @app.middleware("http")
+    async def proxy_api(request: Request, call_next: Callable):
+        if request.url.path.startswith("/api/proxy"):
+            try:
+                # Read request body
+                body = await request.json()
+
+                # Get API key from request header or from nested in body
+                api_key = request.headers.get("X-API-Key")
+                if not api_key and isinstance(body, dict) and isinstance(body.get("headers"), dict):
+                    api_key = body.get("headers", {}).get("X-API-Key")
+
+                # Build headers
+                headers = {"Content-Type": "application/json"}
+                if api_key:
+                    headers["X-API-Key"] = api_key
+
+                # Forward to OpenViking API
+                async with httpx.AsyncClient() as client:
+                    # Build target URL
+                    target_path = body.get("path", "")
+                    query_params = body.get("query", {})
+                    target_url = f"http://localhost:1933{target_path}"
+                    if query_params:
+                        target_url += "?" + "&".join(f"{k}={v}" for k, v in query_params.items())
+
+                    # Forward request
+                    method = body.get("method", "GET").upper()
+                    if method == "GET":
+                        response = await client.get(target_url, headers=headers, timeout=300.0)
+                    elif method == "POST":
+                        response = await client.post(target_url, headers=headers, json=body, timeout=300.0)
+                    elif method == "PUT":
+                        response = await client.put(target_url, headers=headers, json=body, timeout=300.0)
+                    elif method == "DELETE":
+                        response = await client.delete(target_url, headers=headers, timeout=300.0)
+                    else:
+                        return JSONResponse(
+                            status_code=400,
+                            content={"status": "error", "error": {"code": "INVALID_METHOD", "message": f"Unsupported method: {method}"}}
+                        )
+
+                    response.raise_for_status()
+                    return JSONResponse(content=response.json(), status_code=response.status_code)
+            except httpx.RequestError as e:
+                logger.error(f"Failed to connect to OpenViking API: {e}")
+                return JSONResponse(
+                    status_code=502,
+                    content={"status": "error", "error": {"code": "SERVICE_UNAVAILABLE", "message": f"OpenViking API unavailable: {str(e)}"}}
+                )
+            except httpx.HTTPStatusError as e:
+                logger.error(f"OpenViking API returned error: {e}")
+                return JSONResponse(
+                    status_code=e.response.status_code,
+                    content=e.json() if e.response.headers.get("content-type") else {"status": "error", "error": {"code": "API_ERROR", "message": str(e)}}
+                )
+            except Exception as e:
+                logger.error(f"Proxy error: {e}")
+                return JSONResponse(
+                    status_code=500,
+                    content={"status": "error", "error": {"code": "INTERNAL", "message": str(e)}}
+                )
+
+        response = await call_next(request)
         return response
 
     # Add exception handler for OpenVikingError

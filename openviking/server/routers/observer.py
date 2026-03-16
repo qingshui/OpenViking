@@ -17,6 +17,9 @@ from openviking.server.dependencies import get_service
 from openviking.server.identity import RequestContext
 from openviking.server.models import Response
 from openviking.service.debug_service import ComponentStatus, SystemStatus
+from openviking.storage.queuefs.queue_manager import get_queue_manager
+from openviking.storage.observers.queue_observer import QueueObserver
+from openviking_cli.utils import run_async
 
 router = APIRouter(prefix="/api/v1/observer", tags=["observer"])
 
@@ -42,14 +45,71 @@ def _system_to_dict(status: SystemStatus) -> dict:
     }
 
 
+def _queue_to_dict() -> dict:
+    """Get queue status as structured dict."""
+    try:
+        qm = get_queue_manager()
+    except Exception:
+        return {
+            "name": "queue",
+            "is_healthy": False,
+            "has_errors": True,
+            "status": "Queue manager not initialized",
+            "queues": {},
+            "services": {
+                "semantic": {"status": "error", "pending": 0, "processing": 0, "completed": 0, "failed": 0},
+                "embedding": {"status": "error", "pending": 0, "processing": 0, "completed": 0, "failed": 0}
+            }
+        }
+
+    observer = QueueObserver(qm)
+    statuses = run_async(observer._queue_manager.check_status())
+
+    queues = {}
+    for queue_name, status in statuses.items():
+        queues[queue_name] = {
+            "pending": status.pending,
+            "in_progress": status.in_progress,
+            "processed": status.processed,
+            "error_count": status.error_count,
+        }
+
+    # Build services status
+    semantic_status = statuses.get("semantic")
+    embedding_status = statuses.get("embedding")
+
+    return {
+        "name": "queue",
+        "is_healthy": not observer.has_errors(),
+        "has_errors": observer.has_errors(),
+        "status": observer.get_status_table(),
+        "queues": queues,
+        "services": {
+            "semantic": {
+                "status": "running" if not observer.has_errors() else "error",
+                "pending": semantic_status.pending if semantic_status else 0,
+                "processing": semantic_status.in_progress if semantic_status else 0,
+                "completed": semantic_status.processed if semantic_status else 0,
+                "failed": semantic_status.error_count if semantic_status else 0
+            },
+            "embedding": {
+                "status": "running" if not observer.has_errors() else "error",
+                "pending": embedding_status.pending if embedding_status else 0,
+                "processing": embedding_status.in_progress if embedding_status else 0,
+                "completed": embedding_status.processed if embedding_status else 0,
+                "failed": embedding_status.error_count if embedding_status else 0
+            }
+        }
+    }
+
+
 @router.get("/queue")
 async def observer_queue(
     _ctx: RequestContext = Depends(get_request_context),
 ):
     """Get queue system status."""
-    service = get_service()
-    component = service.debug.observer.queue
-    return Response(status="ok", result=_component_to_dict(component))
+    result = _queue_to_dict()
+    return Response(status="ok", result=result)
 
 
 @router.get("/vikingdb")

@@ -30,16 +30,13 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true,
         secure: false
-      },
-      '/assets': {
-        target: 'http://localhost:5173',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/assets/, '')
       }
     }
   },
   build: {
     outDir: 'dist',
     assetsDir: 'assets'
-  }
+  },
+  // Enable SPA mode for proper static file serving
+  appType: 'spa'
 })

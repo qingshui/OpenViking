@@ -44,7 +44,7 @@ export const queueService = {
   getStatus: async () => {
     const response = await apiClient.post('', {
       method: 'GET',
-      path: '/api/v1/queue/status'
+      path: '/api/v1/observer/queue'
     })
     return response.data?.data?.result
   },
