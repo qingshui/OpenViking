@@ -67,7 +67,7 @@ def _queue_to_dict() -> dict:
 
     queues = {}
     for queue_name, status in statuses.items():
-        queues[queue_name] = {
+        queues[queue_name.lower()] = {
             "pending": status.pending,
             "in_progress": status.in_progress,
             "processed": status.processed,

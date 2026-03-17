@@ -46,7 +46,7 @@ export const queueService = {
       method: 'GET',
       path: '/api/v1/observer/queue'
     })
-    return response.data?.data?.result
+    return response.data?.result
   },
 
   getQueueStats: async (queueName: string) => {
@@ -55,7 +55,7 @@ export const queueService = {
       path: '/api/v1/queue/stats',
       query: { queue: queueName }
     })
-    return response.data?.data?.result
+    return response.data?.result
   }
 }
 
