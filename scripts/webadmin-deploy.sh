@@ -73,7 +73,6 @@ deploy_webadmin() {
     local WEBADMIN_DIR="$CONFIG_DIR/webadmin"
 
     # 创建目录结构
-    mkdir -p "$WEBADMIN_DIR/backend"
     mkdir -p "$WEBADMIN_DIR/dist"
     mkdir -p "$CONFIG_DIR/log"
 
@@ -90,22 +89,6 @@ deploy_webadmin() {
     if [[ -d "webadmin/node_modules" ]]; then
         cp -r webadmin/node_modules "$WEBADMIN_DIR/"
     fi
-
-    # 复制后端服务
-    log_info "复制后端服务..."
-    cp webadmin/backend/server.js "$WEBADMIN_DIR/backend/"
-    cp webadmin/backend/package.json "$WEBADMIN_DIR/backend/"
-    if [[ -d "webadmin/backend/node_modules" ]]; then
-        cp -r webadmin/backend/node_modules "$WEBADMIN_DIR/backend/"
-    fi
-
-    # 安装后端依赖
-    log_info "安装后端依赖..."
-    cd "$WEBADMIN_DIR/backend"
-    if [[ ! -d "node_modules" ]]; then
-        npm install
-    fi
-    cd - > /dev/null
 
     # 创建前端启动脚本 (Node.js + Vite)
     log_info "创建前端启动脚本..."
@@ -126,59 +109,12 @@ EOF
     log_info "创建服务管理脚本..."
     cat > "$WEBADMIN_DIR/services.sh" << 'EOF'
 #!/bin/bash
-# Web Admin 服务管理脚本
+# Web Admin 前端服务管理脚本
 
 CONFIG_DIR="$HOME/.openviking"
 WEBADMIN_DIR="$CONFIG_DIR/webadmin"
-BACKEND_DIR="$WEBADMIN_DIR/backend"
-BACKEND_BIN="$BACKEND_DIR/server.js"
-BACKEND_LOG="$CONFIG_DIR/log/webadmin-backend.log"
-BACKEND_PID="$CONFIG_DIR/webadmin/backend.pid"
-
-FRONTEND_DIR="$WEBADMIN_DIR"
 FRONTEND_LOG="$CONFIG_DIR/log/webadmin-frontend.log"
 FRONTEND_PID="$CONFIG_DIR/webadmin/frontend.pid"
-
-start_backend() {
-    if [[ -f "$BACKEND_PID" ]]; then
-        local PID=$(cat "$BACKEND_PID")
-        if kill -0 "$PID" 2>/dev/null; then
-            echo "Web Admin 后端已在运行 (PID: $PID)"
-            return 0
-        fi
-    fi
-
-    echo "启动 Web Admin 后端服务..."
-    cd "$BACKEND_DIR"
-    nohup node server.js > "$BACKEND_LOG" 2>&1 &
-    local pid=$!
-    echo $pid > "$BACKEND_PID"
-
-    echo "等待后端启动..."
-    sleep 3
-
-    if pgrep -f "node.*server.js" > /dev/null; then
-        echo "Web Admin 后端启动成功 (PID: $pid)"
-        echo "访问：http://localhost:3000/api/proxy"
-    else
-        echo "Web Admin 后端启动失败，请检查日志：$BACKEND_LOG"
-        return 1
-    fi
-}
-
-stop_backend() {
-    if [[ -f "$BACKEND_PID" ]]; then
-        local PID=$(cat "$BACKEND_PID")
-        if kill -0 "$PID" 2>/dev/null; then
-            kill "$PID"
-            echo "停止 Web Admin 后端 (PID: $PID)"
-        fi
-        rm -f "$BACKEND_PID"
-    else
-        pkill -f "node.*server.js"
-        echo "停止 Web Admin 后端"
-    fi
-}
 
 start_frontend() {
     if [[ -f "$FRONTEND_PID" ]]; then
@@ -190,7 +126,7 @@ start_frontend() {
     fi
 
     echo "启动 Web Admin 前端服务 (Node.js + Vite)..."
-    cd "$FRONTEND_DIR"
+    cd "$WEBADMIN_DIR"
     nohup node node_modules/vite/bin/vite.js --host 0.0.0.0 > "$FRONTEND_LOG" 2>&1 &
     local pid=$!
     echo $pid > "$FRONTEND_PID"
@@ -221,30 +157,10 @@ stop_frontend() {
     fi
 }
 
-start_all() {
-    start_backend
-    start_frontend
-}
-
-stop_all() {
-    stop_frontend
-    stop_backend
-}
-
 show_status() {
-    echo "=== Web Admin 后端 (端口 3000) ==="
-    if pgrep -f "node.*server.js" > /dev/null; then
-        echo "状态：运行中"
-        echo "PID: $(pgrep -f 'node.*server.js' | head -1)"
-        echo "访问：http://localhost:3000/api/proxy"
-    else
-        echo "状态：未运行"
-    fi
-
-    echo ""
-    echo "=== Web Admin 前端 (端口 5173) ==="
+    echo "=== Web Admin 前端 (端口 5173, Vite) ==="
     if netstat -tlnp 2>/dev/null | grep -q ":5173" || ss -tlnp 2>/dev/null | grep -q ":5173"; then
-        echo "状态：运行中"
+        echo "状态：运行中 (Vite)"
         echo "访问：http://localhost:5173"
     else
         echo "状态：未运行"
@@ -252,83 +168,28 @@ show_status() {
 }
 
 case "$1" in
-    backend)
-        case "$2" in
-            start)
-                start_backend
-                ;;
-            stop)
-                stop_backend
-                ;;
-            status)
-                if pgrep -f "node.*server.js" > /dev/null; then
-                    echo "状态：运行中"
-                    echo "PID: $(pgrep -f 'node.*server.js' | head -1)"
-                else
-                    echo "状态：未运行"
-                fi
-                ;;
-            restart)
-                stop_backend
-                sleep 2
-                start_backend
-                ;;
-            *)
-                echo "用法：$0 backend {start|stop|status|restart}"
-                exit 1
-                ;;
-        esac
-        ;;
-    frontend)
-        case "$2" in
-            start)
-                start_frontend
-                ;;
-            stop)
-                stop_frontend
-                ;;
-            status)
-                if netstat -tlnp 2>/dev/null | grep -q ":5173" || ss -tlnp 2>/dev/null | grep -q ":5173"; then
-                    echo "状态：运行中"
-                else
-                    echo "状态：未运行"
-                fi
-                ;;
-            restart)
-                stop_frontend
-                sleep 2
-                start_frontend
-                ;;
-            *)
-                echo "用法：$0 frontend {start|stop|status|restart}"
-                exit 1
-                ;;
-        esac
-        ;;
     start)
-        start_all
+        start_frontend
         ;;
     stop)
-        stop_all
+        stop_frontend
         ;;
     status)
         show_status
         ;;
     restart)
-        stop_all
+        stop_frontend
         sleep 2
-        start_all
+        start_frontend
         ;;
     *)
-        echo "用法：$0 {backend|frontend|start|stop|status|restart}"
+        echo "用法：$0 {start|stop|status|restart}"
         echo ""
         echo "命令:"
-        echo "  backend    后端服务管理"
-        echo "  frontend   前端服务管理"
-        echo "  start      启动所有服务"
-        echo "  stop       停止所有服务"
+        echo "  start      启动 Web Admin 前端"
+        echo "  stop       停止 Web Admin 前端"
         echo "  status     显示服务状态"
-        echo "  restart    重启所有服务"
+        echo "  restart    重启 Web Admin 前端"
         exit 1
         ;;
 esac
@@ -377,9 +238,6 @@ update_main_services_script() {
 
 # Web Admin 服务配置
 WEBADMIN_DIR="$CONFIG_DIR/webadmin"
-BACKEND_DIR="$WEBADMIN_DIR/backend"
-BACKEND_PID_FILE="$CONFIG_DIR/webadmin/backend.pid"
-BACKEND_LOG="$CONFIG_DIR/log/webadmin-backend.log"
 FRONTEND_PID_FILE="$CONFIG_DIR/webadmin/frontend.pid"
 FRONTEND_LOG="$CONFIG_DIR/log/webadmin-frontend.log"
 EOF
@@ -399,63 +257,6 @@ EOF
 
     # 添加 Web Admin 服务管理函数
     cat >> "$TEMP_FILE" << 'EOF'
-
-# Web Admin 后端服务管理
-# 注意：主 services.sh 中已有更新版本
-start_webadmin_backend() {
-    log_step "启动 Web Admin 后端服务..."
-
-    if [[ ! -f "$BACKEND_DIR/server.js" ]]; then
-        log_error "Web Admin 后端文件不存在：$BACKEND_DIR/server.js"
-        return 1
-    fi
-
-    # 检查是否已在运行
-    if pgrep -f "node.*server.js" > /dev/null; then
-        log_warn "Web Admin 后端已在运行"
-        read -p "是否重启 Web Admin 后端？(y/n): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            stop_webadmin_backend
-            sleep 2
-        else
-            log_info "跳过重启"
-            return 0
-        fi
-    fi
-
-    # 启动 Web Admin 后端
-    log_info "启动 Web Admin 后端..."
-    mkdir -p "$CONFIG_DIR/log"
-    cd "$BACKEND_DIR"
-    nohup node server.js > "$BACKEND_LOG" 2>&1 &
-    local pid=$!
-    echo $pid > "$BACKEND_PID_FILE"
-
-    # 等待启动
-    log_info "等待 Web Admin 后端启动..."
-    sleep 3
-
-    if pgrep -f "node.*server.js" > /dev/null; then
-        log_info "Web Admin 后端启动成功 (PID: $pid)"
-    else
-        log_warn "Web Admin 后端可能未完全启动，请检查日志：$BACKEND_LOG"
-    fi
-}
-
-stop_webadmin_backend() {
-    if [[ -f "$BACKEND_PID_FILE" ]]; then
-        local PID=$(cat "$BACKEND_PID_FILE")
-        if kill -0 "$PID" 2>/dev/null; then
-            kill "$PID"
-            log_info "停止 Web Admin 后端 (PID: $PID)"
-        fi
-        rm -f "$BACKEND_PID_FILE"
-    else
-        pkill -f "node.*server.js"
-        log_info "停止 Web Admin 后端"
-    fi
-}
 
 # Web Admin 前端服务管理
 # 注意：主 services.sh 中已有更新版本
@@ -511,13 +312,11 @@ stop_webadmin_frontend() {
 
 # Web Admin 启停函数
 start_webadmin() {
-    start_webadmin_backend
     start_webadmin_frontend
 }
 
 stop_webadmin() {
     stop_webadmin_frontend
-    stop_webadmin_backend
 }
 EOF
 
@@ -562,10 +361,10 @@ show_help() {
     echo ""
     echo "命令:"
     echo "  deploy      部署 Web Admin 到 $HOME/.openviking/webadmin/"
-    echo "  start       启动 Web Admin 服务"
-    echo "  stop        停止 Web Admin 服务"
+    echo "  start       启动 Web Admin 前端"
+    echo "  stop        停止 Web Admin 前端"
     echo "  status      显示 Web Admin 服务状态"
-    echo "  restart     重启 Web Admin 服务"
+    echo "  restart     重启 Web Admin 前端"
     echo "  clean       清理 Web Admin 服务"
     echo "  help        显示帮助信息"
     echo ""
