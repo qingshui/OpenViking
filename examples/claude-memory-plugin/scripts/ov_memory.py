@@ -101,7 +101,6 @@ class OVClient:
         self.client: Any = None
 
     def __enter__(self) -> "OVClient":
-        print("url=", self.backend.url, ", mode=", self.backend.mode)
         if self.backend.mode == "http":
             from openviking import SyncHTTPClient
 
