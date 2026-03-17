@@ -8,7 +8,10 @@ if [[ ! -f "$OV_CONF" || ! -f "$STATE_FILE" ]]; then
   exit 0
 fi
 
-OUT="$(run_bridge session-end 2>/dev/null || true)"
+set +e  # Disable errexit for this command to allow graceful error handling
+OUT="$(run_bridge session-end 2>/dev/null)" || true
+set -e  # Re-enable errexit
+
 STATUS="$(_json_val "$OUT" "status_line" "")"
 
 if [[ -n "$STATUS" ]]; then
