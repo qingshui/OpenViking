@@ -1,0 +1,19 @@
+{
+  "name": "claude-memory-plugin",
+  "version": "1.0.0",
+  "description": "Claude Code memory plugin built on **OpenViking Session memory**.",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+  	"打开","保存","阅读", "分析", "加载", "读取"
+  ],
+  "author": "",
+  "license": "MIT",
+  "files": [
+  	"README.md", 
+	"hooks",
+	"scripts", 
+	"skills"
+  ]
+}

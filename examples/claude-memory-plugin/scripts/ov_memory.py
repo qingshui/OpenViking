@@ -88,7 +88,6 @@ def detect_backend(project_dir: Path, ov_conf: Dict[str, Any]) -> BackendInfo:
 
         if _health_check(url):
             return BackendInfo(mode="http", url=url, api_key=str(api_key))
-
     return BackendInfo(
         mode="local",
         local_data_path=_resolve_local_data_path(project_dir, ov_conf),
@@ -102,6 +101,7 @@ class OVClient:
         self.client: Any = None
 
     def __enter__(self) -> "OVClient":
+        print("url=", self.backend.url, ", mode=", self.backend.mode)
         if self.backend.mode == "http":
             from openviking import SyncHTTPClient
 
@@ -111,7 +111,7 @@ class OVClient:
             )
             self.client.initialize()
             return self
-
+        
         os.environ["OPENVIKING_CONFIG_FILE"] = str(self.ov_conf_path)
         from openviking import SyncOpenViking
 
@@ -428,10 +428,19 @@ def _build_backend_from_state_or_detect(
 
     return detect_backend(project_dir, ov_conf)
 
-
-def cmd_session_start(args: argparse.Namespace) -> Dict[str, Any]:
+def get_project_ov_conf(args):
     project_dir = Path(args.project_dir).resolve()
     ov_conf_path = project_dir / "ov.conf"
+    if ov_conf_path.exists():
+        return project_dir, ov_conf_path
+
+    script_path = os.path.abspath(__file__)
+    project_dir = Path(os.path.dirname(os.path.dirname(script_path))).resolve()
+    ov_conf_path = project_dir / "ov.conf"
+    return project_dir, ov_conf_path
+
+def cmd_session_start(args: argparse.Namespace) -> Dict[str, Any]:
+    project_dir, ov_conf_path = get_project_ov_conf(args)
     state_file = Path(args.state_file)
 
     if not ov_conf_path.exists():
@@ -484,8 +493,7 @@ def cmd_session_start(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def cmd_ingest_stop(args: argparse.Namespace) -> Dict[str, Any]:
-    project_dir = Path(args.project_dir).resolve()
-    ov_conf_path = project_dir / "ov.conf"
+    project_dir, ov_conf_path = get_project_ov_conf(args)
     state_file = Path(args.state_file)
     transcript = Path(args.transcript_path)
 
@@ -544,8 +552,7 @@ def cmd_ingest_stop(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def cmd_session_end(args: argparse.Namespace) -> Dict[str, Any]:
-    project_dir = Path(args.project_dir).resolve()
-    ov_conf_path = project_dir / "ov.conf"
+    project_dir, ov_conf_path = get_project_ov_conf(args)
     state_file = Path(args.state_file)
 
     state = _load_state(state_file)
@@ -591,8 +598,7 @@ def cmd_session_end(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def cmd_recall(args: argparse.Namespace) -> int:
-    project_dir = Path(args.project_dir).resolve()
-    ov_conf_path = project_dir / "ov.conf"
+    project_dir, ov_conf_path = get_project_ov_conf(args)
     state_file = Path(args.state_file)
     query = _as_text(args.query)
 
@@ -663,8 +669,8 @@ def cmd_recall(args: argparse.Namespace) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="OpenViking memory bridge")
-    parser.add_argument("--project-dir", required=True, help="Claude project directory")
-    parser.add_argument("--state-file", required=True, help="Plugin state file path")
+    parser.add_argument("--project-dir", required=False, default="./", help="Claude project directory")
+    parser.add_argument("--state-file", required=False, default="./.openviking/memory/session_state.json", help="Plugin state file path")
 
     sub = parser.add_subparsers(dest="command", required=True)
 

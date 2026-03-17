@@ -1,0 +1,16 @@
+{
+  "name": "claude-memory-plugin",
+  "description": "Local marketplace for OpenViking memory plugin",
+  "owner": {
+    "name": "OpenViking Team",
+    "email": "support@openviking.ai"
+  },
+  "plugins": [
+    {
+      "name": "claude-memory-plugin",
+      "source": "./",
+      "description": "Persistent memory for Claude Code powered by OpenViking sessions",
+      "version": "0.1.0"
+    }
+  ]
+}

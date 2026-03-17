@@ -14,13 +14,9 @@ Find the most relevant historical memories for: $ARGUMENTS
 
 1. Resolve the memory bridge script path.
 ```bash
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
+PROJECT_DIR="${HOME}/.claude/plugins/cache/claude-memory-plugin/claude-memory-plugin/0.1.0"
 STATE_FILE="$PROJECT_DIR/.openviking/memory/session_state.json"
-BRIDGE="${CLAUDE_PLUGIN_ROOT:-}/scripts/ov_memory.py"
-
-if [ ! -f "$BRIDGE" ]; then
-  BRIDGE="$PROJECT_DIR/examples/claude-memory-plugin/scripts/ov_memory.py"
-fi
+BRIDGE="${PROJECT_DIR}/scripts/ov_memory.py"
 ```
 
 2. Run memory recall search.

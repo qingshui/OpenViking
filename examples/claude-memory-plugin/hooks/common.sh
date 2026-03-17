@@ -11,7 +11,7 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+PROJECT_DIR="${PLUGIN_ROOT}"
 
 STATE_DIR="$PROJECT_DIR/.openviking/memory"
 STATE_FILE="$STATE_DIR/session_state.json"
