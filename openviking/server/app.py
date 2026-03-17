@@ -185,14 +185,17 @@ def create_app(
 
                     # Forward request
                     method = body.get("method", "GET").upper()
+                    # Extract the actual request data (not the proxy wrapper)
+                    request_data = body.get("data") if body.get("data") is not None else {}
+
                     if method == "GET":
                         response = await client.get(target_url, headers=headers, timeout=300.0)
                     elif method == "POST":
-                        response = await client.post(target_url, headers=headers, json=body, timeout=300.0)
+                        response = await client.post(target_url, headers=headers, json=request_data, timeout=300.0)
                     elif method == "PUT":
-                        response = await client.put(target_url, headers=headers, json=body, timeout=300.0)
+                        response = await client.put(target_url, headers=headers, json=request_data, timeout=300.0)
                     elif method == "DELETE":
-                        response = await client.delete(target_url, headers=headers, timeout=300.0)
+                        response = await client.delete(target_url, headers=headers, json=request_data, timeout=300.0)
                     else:
                         return JSONResponse(
                             status_code=400,
@@ -209,9 +212,13 @@ def create_app(
                 )
             except httpx.HTTPStatusError as e:
                 logger.error(f"OpenViking API returned error: {e}")
+                try:
+                    content = e.response.json()
+                except:
+                    content = {"status": "error", "error": {"code": "API_ERROR", "message": str(e)}}
                 return JSONResponse(
                     status_code=e.response.status_code,
-                    content=e.json() if e.response.headers.get("content-type") else {"status": "error", "error": {"code": "API_ERROR", "message": str(e)}}
+                    content=content
                 )
             except Exception as e:
                 logger.error(f"Proxy error: {e}")

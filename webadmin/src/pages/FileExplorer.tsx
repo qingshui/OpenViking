@@ -48,7 +48,7 @@ const FileExplorer: React.FC = () => {
           path: '/api/v1/content/abstract',
           query: { uri }
         })
-        const data = response.data?.data?.result
+        const data = response.data?.result
         content = typeof data === 'string' ? data : data?.content || ''
       } else if (level === 'l1') {
         // L1: Overview
@@ -57,7 +57,7 @@ const FileExplorer: React.FC = () => {
           path: '/api/v1/content/overview',
           query: { uri }
         })
-        const data = response.data?.data?.result
+        const data = response.data?.result
         content = typeof data === 'string' ? data : data?.content || ''
       } else {
         // L2: Full content
@@ -66,7 +66,7 @@ const FileExplorer: React.FC = () => {
           path: '/api/v1/content/read',
           query: { uri, offset: 0, limit: -1 }
         })
-        const data = response.data?.data?.result
+        const data = response.data?.result
         content = typeof data === 'string' ? data : data?.content || ''
       }
 

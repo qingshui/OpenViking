@@ -23,8 +23,10 @@ const ResourceDetail: React.FC = () => {
       if (uri) {
         const decodedUri = decodeURIComponent(uri)
         const data = await resourceService.getAbstract(decodedUri)
-        setContent(data.content || '')
-        setMetadata(data.metadata || {})
+        // Backend returns string directly, not {content, metadata}
+        setContent(typeof data === 'string' ? data : data?.content || '')
+        // Metadata is not available from abstract endpoint
+        setMetadata({})
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load resource')

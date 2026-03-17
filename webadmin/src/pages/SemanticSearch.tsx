@@ -9,9 +9,15 @@ interface SearchResult {
   score: number
 }
 
+interface GrepResult {
+  line: number
+  uri: string
+  content: string
+}
+
 const SemanticSearch: React.FC = () => {
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<SearchResult[]>([])
+  const [results, setResults] = useState<(SearchResult | GrepResult)[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [targetUri, setTargetUri] = useState('')
@@ -34,13 +40,23 @@ const SemanticSearch: React.FC = () => {
   }
 
   const handleContentSearch = async () => {
-    if (!grepPattern.trim() || !targetUri) return
+    if (!grepPattern.trim()) {
+      setError('Please enter a search pattern')
+      return
+    }
+    if (!targetUri) {
+      setError('Please enter a target URI')
+      return
+    }
+    console.log('Starting content search:', { targetUri, grepPattern })
     try {
       setLoading(true)
       setError('')
       const data = await searchService.grep(targetUri, grepPattern)
+      console.log('Search results:', data)
       setResults(data || [])
     } catch (err) {
+      console.error('Content search error:', err)
       setError(err instanceof Error ? err.message : 'Search failed')
     } finally {
       setLoading(false)
@@ -164,14 +180,28 @@ const SemanticSearch: React.FC = () => {
           <h3 className="font-semibold text-gray-700">Results ({results.length})</h3>
           {results.map((result, index) => (
             <div key={index} className="bg-white p-6 rounded-lg shadow-sm border">
-              <div className="flex justify-between items-start mb-2">
-                <h4 className="font-semibold text-gray-900">{result.uri}</h4>
-                <span className="text-sm text-green-600">Score: {result.score.toFixed(2)}</span>
-              </div>
-              <div className="text-sm text-gray-500 mb-2">
-                Type: {result.context_type} | Level: {result.level}
-              </div>
-              <p className="text-gray-700">{result.abstract}</p>
+              {('score' in result) ? (
+                // Semantic search result
+                <>
+                  <div className="flex justify-between items-start mb-2">
+                    <h4 className="font-semibold text-gray-900">{result.uri}</h4>
+                    <span className="text-sm text-green-600">Score: {result.score.toFixed(2)}</span>
+                  </div>
+                  <div className="text-sm text-gray-500 mb-2">
+                    Type: {result.context_type} | Level: {result.level}
+                  </div>
+                  <p className="text-gray-700">{result.abstract}</p>
+                </>
+              ) : (
+                // Grep search result
+                <>
+                  <div className="flex justify-between items-start mb-2">
+                    <h4 className="font-semibold text-gray-900">{result.uri}</h4>
+                    <span className="text-sm text-blue-600">Line: {result.line}</span>
+                  </div>
+                  <pre className="bg-gray-50 p-3 rounded text-sm whitespace-pre-wrap">{result.content}</pre>
+                </>
+              )}
             </div>
           ))}
         </div>

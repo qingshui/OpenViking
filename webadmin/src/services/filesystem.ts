@@ -14,7 +14,7 @@ export const filesystemService = {
       path: '/api/v1/fs/ls',
       query: { uri, recursive }
     })
-    return response.data?.data?.result || []
+    return response.data?.result || []
   },
 
   tree: async (uri: string = 'viking://', level_limit: number = 3) => {
@@ -23,7 +23,7 @@ export const filesystemService = {
       path: '/api/v1/fs/tree',
       query: { uri, level_limit }
     })
-    return response.data?.data?.result
+    return response.data?.result
   },
 
   stat: async (uri: string) => {
@@ -32,7 +32,7 @@ export const filesystemService = {
       path: '/api/v1/fs/stat',
       query: { uri }
     })
-    return response.data?.data?.result
+    return response.data?.result
   },
 
   mkdir: async (uri: string) => {
@@ -41,7 +41,7 @@ export const filesystemService = {
       path: '/api/v1/fs/mkdir',
       data: { uri }
     })
-    return response.data?.data?.result
+    return response.data?.result
   },
 
   mv: async (from_uri: string, to_uri: string) => {
@@ -50,6 +50,6 @@ export const filesystemService = {
       path: '/api/v1/fs/mv',
       data: { from_uri, to_uri }
     })
-    return response.data?.data?.result
+    return response.data?.result
   }
 }

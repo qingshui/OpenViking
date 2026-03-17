@@ -6,7 +6,7 @@ export const sessionService = {
       method: 'POST',
       path: '/api/v1/sessions'
     })
-    return response.data?.data?.result
+    return response.data?.result
   },
 
   list: async () => {
@@ -14,7 +14,7 @@ export const sessionService = {
       method: 'GET',
       path: '/api/v1/sessions'
     })
-    return response.data?.data?.result || []
+    return response.data?.result || []
   },
 
   get: async (session_id: string) => {
@@ -22,7 +22,7 @@ export const sessionService = {
       method: 'GET',
       path: `/api/v1/sessions/${session_id}`
     })
-    return response.data?.data?.result
+    return response.data?.result
   },
 
   addMessage: async (session_id: string, role: string, content: string) => {
@@ -31,7 +31,7 @@ export const sessionService = {
       path: `/api/v1/sessions/${session_id}/messages`,
       data: { role, content }
     })
-    return response.data?.data?.result
+    return response.data?.result
   },
 
   commit: async (session_id: string, wait: boolean = true) => {
@@ -40,7 +40,7 @@ export const sessionService = {
       path: `/api/v1/sessions/${session_id}/commit`,
       data: { wait }
     })
-    return response.data?.data?.result
+    return response.data?.result
   },
 
   delete: async (session_id: string) => {

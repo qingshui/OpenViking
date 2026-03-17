@@ -15,31 +15,39 @@ interface QuickStats {
   totalSize: string
 }
 
-interface QueueStats {
-  semantic: {
-    pending: number
-    processing: number
-    completed: number
-    failed: number
-  }
-  embedding: {
-    pending: number
-    processing: number
-    completed: number
-    failed: number
-  }
-}
-
 interface QueueStatus {
-  queues: QueueStats
+  name?: string
+  is_healthy?: boolean
+  has_errors?: boolean
+  status?: string  // ASCII table string
+  queues: {
+    embedding: {
+      pending: number
+      in_progress: number
+      processed: number
+      error_count: number
+    }
+    semantic: {
+      pending: number
+      in_progress: number
+      processed: number
+      error_count: number
+    }
+  }
   services: {
     embedding: {
       status: 'running' | 'stopped' | 'error'
-      last_error?: string
+      pending: number
+      processing: number
+      completed: number
+      failed: number
     }
     semantic: {
       status: 'running' | 'stopped' | 'error'
-      last_error?: string
+      pending: number
+      processing: number
+      completed: number
+      failed: number
     }
   }
 }
@@ -110,8 +118,11 @@ const Dashboard: React.FC = () => {
 
   const loadQueueStatus = async () => {
     try {
-      const status = await queueService.getStatus()
-      setQueueStatus(status)
+      const rawStatus = await queueService.getStatus()
+      // Backend returns the exact format we need
+      // queues: { embedding/semantic: { pending, in_progress, processed, error_count } }
+      // services: { embedding/semantic: { status, pending, processing, completed, failed } }
+      setQueueStatus(rawStatus)
     } catch (err) {
       console.error('Failed to load queue status:', err)
     }
@@ -151,7 +162,7 @@ const Dashboard: React.FC = () => {
     return colors[status] || 'gray'
   }
 
-  const QueueStatusCard: React.FC<{
+  const ServiceStatusCard: React.FC<{
     title: string
     stats: { pending: number; processing: number; completed: number; failed: number }
     status: 'running' | 'stopped' | 'error'
@@ -277,14 +288,14 @@ const Dashboard: React.FC = () => {
                 Queue Status
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <QueueStatusCard
+                <ServiceStatusCard
                   title="Semantic Queue"
-                  stats={queueStatus.queues.semantic}
+                  stats={queueStatus.services.semantic}
                   status={queueStatus.services.semantic.status}
                 />
-                <QueueStatusCard
+                <ServiceStatusCard
                   title="Embedding Queue"
-                  stats={queueStatus.queues.embedding}
+                  stats={queueStatus.services.embedding}
                   status={queueStatus.services.embedding.status}
                 />
               </div>

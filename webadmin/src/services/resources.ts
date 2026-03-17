@@ -16,7 +16,7 @@ export const resourceService = {
       path: '/api/v1/fs/ls',
       query: { uri, simple: false, recursive: false, limit }
     })
-    return response.data?.data?.result || []
+    return response.data?.result || []
   },
 
   add: async (path: string, parent: string = 'viking://resources/', reason: string = '') => {
@@ -25,7 +25,7 @@ export const resourceService = {
       path: '/api/v1/resources',
       data: { path, parent, reason, wait: true }
     })
-    return response.data?.data?.result
+    return response.data?.result
   },
 
   delete: async (uri: string, recursive: boolean = false) => {
@@ -42,7 +42,7 @@ export const resourceService = {
       path: '/api/v1/content/read',
       query: { uri, offset, limit }
     })
-    return response.data?.data?.result
+    return response.data?.result
   },
 
   getAbstract: async (uri: string) => {
@@ -51,7 +51,7 @@ export const resourceService = {
       path: '/api/v1/content/abstract',
       query: { uri }
     })
-    return response.data?.data?.result
+    return response.data?.result
   },
 
   getOverview: async (uri: string) => {
@@ -60,6 +60,6 @@ export const resourceService = {
       path: '/api/v1/content/overview',
       query: { uri }
     })
-    return response.data?.data?.result
+    return response.data?.result
   }
 }
