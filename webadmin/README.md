@@ -55,24 +55,31 @@ npm run dev
 bash scripts/webadmin-deploy.sh deploy
 ```
 
-部署后，服务管理脚本位于 `$HOME/.openviking/webadmin/services.sh`：
+部署后，使用主服务管理脚本启动服务：
 
 ```bash
-# 启动所有服务
-cd $HOME/.openviking/webadmin
-./services.sh start
+# 启动所有服务 (AGFS + OpenViking Server + Web Admin)
+~/.openviking/services.sh start
 
-# 仅启动后端
-./services.sh start-backend
+# 仅启动 Web Admin (前后端)
+~/.openviking/services.sh start-webadmin
 
-# 仅启动前端
-./services.sh start-frontend
+# 仅启动 Web Admin 前端 (Node.js + Vite)
+~/.openviking/services.sh start-webadmin-frontend
 
-# 停止所有服务
-./services.sh stop
+# 仅启动 Web Admin 后端 (Node.js)
+~/.openviking/services.sh start-webadmin-backend
 
-# 查看状态
-./services.sh status
+# 停止 Web Admin
+~/.openviking/services.sh stop-webadmin
+
+# 查看服务状态
+~/.openviking/services.sh status
+```
+
+**前端启动方式**：生产环境中，Web Admin 前端使用 Node.js + Vite 启动：
+```bash
+node ~/.openviking/webadmin/node_modules/vite/bin/vite.js --host 0.0.0.0
 ```
 
 ## 主服务管理脚本
@@ -104,8 +111,7 @@ PID: 12346
 访问：http://localhost:3000/api/proxy
 
 === Web Admin 前端 (端口 5173) ===
-状态：运行中
-PID: 12347
+状态：运行中 (Node.js + Vite)
 访问：http://0.0.0.0:5173
 
 === AGFS 服务 ===
@@ -114,7 +120,7 @@ PID: 12344
 访问：localhost:1833
 ```
 
-## 生产环境 Nginx 配置
+## 生产环境 Nginx 配置（可选）
 
 ```nginx
 # WebAdmin Frontend
@@ -260,6 +266,5 @@ webadmin/
 - 前端只与 WebAdmin 后端服务交互 (`/api` 路由)
 - WebAdmin 后端负责调用 OpenViking API (localhost:1933)
 - 配置管理完全在后端进行，前端只负责展示和提交配置
-- 通过 Nginx 配置将 `/api` 路由到后端服务，避免 CORS 问题
+- 前端使用 Node.js + Vite 启动，而不是 Python HTTP server
 - 前端不需要硬编码 OpenViking API 地址，完全由后端管理
-- Nginx 配置在远程服务器，本地直接访问 5173 和 3000 端口

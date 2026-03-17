@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # OpenViking Web Admin 部署脚本
-# 将 Web Admin 前后端分离部署到 $HOME/.openviking/webadmin/目录
+# 将 Web Admin 部署到 $HOME/.openviking/webadmin/目录
 #
 
 set -e
@@ -107,14 +107,14 @@ deploy_webadmin() {
     fi
     cd - > /dev/null
 
-    # 创建前端静态文件服务器脚本（使用 Python）
-    log_info "创建前端静态文件服务器..."
+    # 创建前端启动脚本 (Node.js + Vite)
+    log_info "创建前端启动脚本..."
     cat > "$WEBADMIN_DIR/start-frontend.sh" << 'EOF'
 #!/bin/bash
-# 使用 Python 静态文件服务器启动前端
+# 使用 Node.js + Vite 启动前端
 
-cd ~/.openviking/webadmin/dist
-python3 -m http.server 5173 --bind 0.0.0.0
+cd ~/.openviking/webadmin
+node node_modules/vite/bin/vite.js --host 0.0.0.0
 EOF
     chmod +x "$WEBADMIN_DIR/start-frontend.sh"
 
@@ -122,11 +122,11 @@ EOF
     log_info "复制 Nginx 配置..."
     cp webadmin/nginx.conf "$CONFIG_DIR/"
 
-    # 创建后端服务管理脚本
-    log_info "创建后端服务管理脚本..."
+    # 创建服务管理脚本
+    log_info "创建服务管理脚本..."
     cat > "$WEBADMIN_DIR/services.sh" << 'EOF'
 #!/bin/bash
-# Web Admin 服务管理脚本 (前后端分离)
+# Web Admin 服务管理脚本
 
 CONFIG_DIR="$HOME/.openviking"
 WEBADMIN_DIR="$CONFIG_DIR/webadmin"
@@ -189,14 +189,14 @@ start_frontend() {
         fi
     fi
 
-    echo "启动 Web Admin 前端服务..."
-    cd "$FRONTEND_DIR/dist"
-    nohup python3 -m http.server 5173 --bind 0.0.0.0 > "$FRONTEND_LOG" 2>&1 &
+    echo "启动 Web Admin 前端服务 (Node.js + Vite)..."
+    cd "$FRONTEND_DIR"
+    nohup node node_modules/vite/bin/vite.js --host 0.0.0.0 > "$FRONTEND_LOG" 2>&1 &
     local pid=$!
     echo $pid > "$FRONTEND_PID"
 
     echo "等待前端启动..."
-    sleep 3
+    sleep 5
 
     if netstat -tlnp 2>/dev/null | grep -q ":5173" || ss -tlnp 2>/dev/null | grep -q ":5173"; then
         echo "Web Admin 前端启动成功 (PID: $pid)"
@@ -216,7 +216,7 @@ stop_frontend() {
         fi
         rm -f "$FRONTEND_PID"
     else
-        pkill -f "python3.*http.server.*5173" 2>/dev/null || true
+        pkill -f "vite" 2>/dev/null || true
         echo "停止 Web Admin 前端"
     fi
 }
@@ -375,7 +375,7 @@ update_main_services_script() {
             # 添加 Web Admin 相关配置
             cat >> "$TEMP_FILE" << 'EOF'
 
-# Web Admin 服务配置 (前后端分离)
+# Web Admin 服务配置
 WEBADMIN_DIR="$CONFIG_DIR/webadmin"
 BACKEND_DIR="$WEBADMIN_DIR/backend"
 BACKEND_PID_FILE="$CONFIG_DIR/webadmin/backend.pid"
@@ -388,6 +388,7 @@ EOF
     done < "$SERVICES_SCRIPT"
 
     # 添加 Web Admin 服务管理函数到文件末尾（在 show_status 之前）
+    # 注意：此函数已被主 services.sh 中的函数替代
     local BEFORE_STATUS=$(mktemp)
     local AFTER_STATUS=$(mktemp)
 
@@ -400,6 +401,7 @@ EOF
     cat >> "$TEMP_FILE" << 'EOF'
 
 # Web Admin 后端服务管理
+# 注意：主 services.sh 中已有更新版本
 start_webadmin_backend() {
     log_step "启动 Web Admin 后端服务..."
 
@@ -456,8 +458,9 @@ stop_webadmin_backend() {
 }
 
 # Web Admin 前端服务管理
+# 注意：主 services.sh 中已有更新版本
 start_webadmin_frontend() {
-    log_step "启动 Web Admin 前端服务..."
+    log_step "启动 Web Admin 前端服务 (Node.js + Vite)..."
 
     # 检查是否已在运行
     if netstat -tlnp 2>/dev/null | grep -q ":5173" || ss -tlnp 2>/dev/null | grep -q ":5173"; then
@@ -476,14 +479,14 @@ start_webadmin_frontend() {
     # 启动 Web Admin 前端
     log_info "启动 Web Admin 前端..."
     mkdir -p "$CONFIG_DIR/log"
-    cd "$WEBADMIN_DIR/dist"
-    nohup python3 -m http.server 5173 --bind 0.0.0.0 > "$FRONTEND_LOG" 2>&1 &
+    cd "$WEBADMIN_DIR"
+    nohup node node_modules/vite/bin/vite.js --host 0.0.0.0 > "$FRONTEND_LOG" 2>&1 &
     local pid=$!
     echo $pid > "$FRONTEND_PID_FILE"
 
     # 等待启动
     log_info "等待 Web Admin 前端启动..."
-    sleep 3
+    sleep 5
 
     if netstat -tlnp 2>/dev/null | grep -q ":5173" || ss -tlnp 2>/dev/null | grep -q ":5173"; then
         log_info "Web Admin 前端启动成功 (PID: $pid)"
@@ -501,12 +504,12 @@ stop_webadmin_frontend() {
         fi
         rm -f "$FRONTEND_PID_FILE"
     else
-        pkill -f "python3.*http.server.*5173" 2>/dev/null || true
+        pkill -f "vite" 2>/dev/null || true
         log_info "停止 Web Admin 前端"
     fi
 }
 
-# 修改 start_webadmin 和 stop_webadmin 函数
+# Web Admin 启停函数
 start_webadmin() {
     start_webadmin_backend
     start_webadmin_frontend
