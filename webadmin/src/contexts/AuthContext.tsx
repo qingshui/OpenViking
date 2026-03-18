@@ -20,11 +20,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const apikey = localStorage.getItem('ov_api_key')
     const username = localStorage.getItem('ov_username')
 
-    if (apikey && username) {
+    if (apikey) {
       setIsAuthenticated(true)
       setUser({
         uid: 'current',
-        username,
+        username: username || 'admin',
         role: 'USER'
       })
     }

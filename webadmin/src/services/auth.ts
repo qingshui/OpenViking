@@ -31,42 +31,38 @@ export const authService = {
    */
   login: async (apikey: string): Promise<LoginResponse> => {
     try {
-      // Store API key
+      // Store API key temporarily for verification
       localStorage.setItem('ov_api_key', apikey)
 
-      // Verify API key by making a simple request
+      // Verify API key by making a simple request to system/status
       const response = await handleAPI<any>(
-        apiClient.get('/sessions')
+        apiClient.get('/system/status')
       )
 
       if (response.success) {
-        // Get user info from account API
-        const accountsResponse = await handleAPI<Account[]>(
-          apiClient.get('/admin/accounts')
-        )
-
-        if (accountsResponse.success && accountsResponse.data) {
-          // Find current user based on API key
-          // This is a simplified version - in production, you'd have a proper user endpoint
-          const currentUser: User = {
-            uid: 'current',
-            username: 'user',
-            role: 'USER'
-          }
-          localStorage.setItem('ov_username', currentUser.username)
-          return {
-            success: true,
-            user: currentUser,
-            message: 'Login successful'
-          }
+        // Login successful
+        const currentUser: User = {
+          uid: 'current',
+          username: 'admin',
+          role: 'USER'
+        }
+        localStorage.setItem('ov_username', currentUser.username)
+        return {
+          success: true,
+          user: currentUser,
+          message: 'Login successful'
         }
       }
 
+      // If failed, clean up
+      localStorage.removeItem('ov_api_key')
       return {
         success: false,
         message: response.error || 'Login failed'
       }
     } catch (error) {
+      // Clean up on error
+      localStorage.removeItem('ov_api_key')
       const apiError = error as APIResponse
       return {
         success: false,
