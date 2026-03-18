@@ -167,9 +167,63 @@ export interface BackendVLMResponse {
   status: string
 }
 
+// Parse ASCII table from VLM status
+const parseVLMTable = (table: string): any[] => {
+  const lines = table.trim().split('\n')
+  if (lines.length < 4) {
+    return []
+  }
+
+  // Find header line (the one with column names)
+  let headerLine = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('|    Model    |') || lines[i].includes('| Model |')) {
+      headerLine = i
+      break
+    }
+  }
+
+  if (headerLine === -1 || headerLine + 2 >= lines.length) {
+    return []
+  }
+
+  const results = []
+
+  // Start from line after separator (headerLine + 2) and parse until next separator or end
+  for (let i = headerLine + 2; i < lines.length; i++) {
+    const line = lines[i]
+    // Stop if we hit a separator line (starts with +---)
+    if (line.trim().startsWith('+') && line.includes('-')) {
+      continue
+    }
+
+    const columns = line.split('|').map(col => col.trim()).filter(col => col !== '')
+
+    // Expected columns: Model, Provider, Prompt, Completion, Total, Last Updated
+    if (columns.length >= 6) {
+      // Skip TOTAL row
+      if (columns[0] === 'TOTAL' || columns[0].toUpperCase() === 'TOTAL') {
+        continue
+      }
+
+      results.push({
+        model: columns[0],
+        provider: columns[1],
+        prompt_tokens: parseInt(columns[2]) || 0,
+        completion_tokens: parseInt(columns[3]) || 0,
+        total_tokens: parseInt(columns[4]) || 0,
+        last_updated: columns[5]
+      })
+    }
+  }
+
+  return results
+}
+
 // Normalize backend VLM response
 const normalizeVLMStats = (backend: BackendVLMResponse): VLMStats => {
-  if (backend.status.includes('No token usage data available.')) {
+  // Check for empty or error status
+  if (!backend.status || backend.status.includes('No token usage data available.')) {
     return {
       provider: 'OpenAI',
       model: 'gpt-4o',
@@ -178,10 +232,68 @@ const normalizeVLMStats = (backend: BackendVLMResponse): VLMStats => {
     }
   }
 
+  // Try to parse the ASCII table
+  const parsedModels = parseVLMTable(backend.status)
+
+  if (parsedModels.length > 0) {
+    // Use the first model for display
+    const firstModel = parsedModels[0]
+
+    // Calculate totals across all models
+    let totalPromptTokens = 0
+    let totalCompletionTokens = 0
+    let totalAllTokens = 0
+
+    for (const model of parsedModels) {
+      totalPromptTokens += model.prompt_tokens
+      totalCompletionTokens += model.completion_tokens
+      totalAllTokens += model.total_tokens
+    }
+
+    return {
+      provider: firstModel.provider,
+      model: firstModel.model,
+      token_usage: {
+        prompt_tokens: totalPromptTokens,
+        completion_tokens: totalCompletionTokens,
+        total_tokens: totalAllTokens
+      },
+      request_count: parsedModels.length, // Use model count as request count approximation
+      avg_response_time_ms: undefined
+    }
+  }
+
+  // Fallback to simple parsing if table parsing fails
+  // Try to extract model and provider from status string
+  let model = 'Unknown'
+  let provider = 'Unknown'
+  let totalTokens = 0
+
+  // Split by lines and look for data rows
+  const lines = backend.status.split('\n')
+  for (const line of lines) {
+    // Look for lines that look like table rows (contain multiple | characters)
+    if (line.includes('|') && line.trim() && !line.trim().startsWith('+')) {
+      const columns = line.split('|').map(col => col.trim()).filter(col => col !== '')
+
+      if (columns.length >= 6) {
+        // Skip TOTAL row
+        if (columns[0] === 'TOTAL' || columns[0].toUpperCase() === 'TOTAL') {
+          continue
+        }
+
+        model = columns[0] || 'Unknown'
+        provider = columns[1] || 'Unknown'
+        totalTokens = parseInt(columns[4]) || 0
+        break
+      }
+    }
+  }
+
   return {
-    provider: 'OpenAI',
-    model: 'gpt-4o',
-    token_usage: { total_tokens: 0 },
+    provider,
+    model,
+    token_usage: { total_tokens: totalTokens },
     request_count: 0
   }
 }
