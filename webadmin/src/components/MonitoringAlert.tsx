@@ -1,5 +1,5 @@
 import React from 'react'
-import { useMonitoring } from '../contexts/MonitoringContext'
+import { useMonitoring } from '../hooks'
 import { StatusIndicator } from './StatusIndicator'
 
 interface MonitoringAlertProps {
@@ -16,7 +16,7 @@ export const MonitoringAlert: React.FC<MonitoringAlertProps> = ({ className = ''
           <StatusIndicator status="error" size="medium" />
           <div className="ml-3">
             <p className="text-sm font-medium text-red-800">Monitoring Error</p>
-            <p className="text-sm text-red-700 mt-1">{error}</p>
+            <p className="text-sm text-red-700 mt-1">{error.message}</p>
           </div>
         </div>
       </div>
