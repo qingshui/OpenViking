@@ -26,7 +26,7 @@ interface GrepResult {
 
 const SemanticSearch: React.FC = () => {
   const [query, setQuery] = useState('')
-  const [targetUri, setTargetUri] = useState('')
+  const [targetUri, setTargetUri] = useState('viking://resources/')
   const [limit, setLimit] = useState(10)
   const [activeTab, setActiveTab] = useState<TabType>('semantic')
   const [grepPattern, setGrepPattern] = useState('')
@@ -63,12 +63,11 @@ const SemanticSearch: React.FC = () => {
       })
       return
     }
-    if (!targetUri) {
-      addToast({
-        type: 'warning',
-        message: 'Please enter a target URI'
-      })
-      return
+
+    // If targetUri is empty, use default value and update state
+    const effectiveUri = targetUri.trim() || 'viking://resources/'
+    if (effectiveUri !== targetUri) {
+      setTargetUri(effectiveUri)
     }
   }
 
