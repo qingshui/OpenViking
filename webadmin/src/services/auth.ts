@@ -75,8 +75,25 @@ export const authService = {
    * Logout
    */
   logout: () => {
-    localStorage.removeItem('ov_api_key')
-    localStorage.removeItem('ov_username')
+    // Clear all OpenViking related storage
+    const keysToRemove = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith('ov_')) {
+        keysToRemove.push(key)
+      }
+    }
+    keysToRemove.forEach(key => localStorage.removeItem(key))
+
+    // Also clear any sessionStorage items
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i)
+      if (key && key.startsWith('ov_')) {
+        sessionStorage.removeItem(key)
+      }
+    }
+
+    // Force page reload to clear any React state and axios interceptors
     window.location.href = '/login'
   },
 
