@@ -54,9 +54,19 @@ export interface VikingDBStatus {
   [key: string]: any
 }
 
+export interface VLMModel {
+  model: string
+  provider: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  last_updated: string
+}
+
 export interface VLMStats {
   provider: string
   model: string
+  models?: VLMModel[]
   token_usage?: {
     total_tokens?: number
     prompt_tokens?: number
@@ -236,7 +246,7 @@ const normalizeVLMStats = (backend: BackendVLMResponse): VLMStats => {
   const parsedModels = parseVLMTable(backend.status)
 
   if (parsedModels.length > 0) {
-    // Use the first model for display
+    // Use the first model for display (backward compatibility)
     const firstModel = parsedModels[0]
 
     // Calculate totals across all models
@@ -253,6 +263,7 @@ const normalizeVLMStats = (backend: BackendVLMResponse): VLMStats => {
     return {
       provider: firstModel.provider,
       model: firstModel.model,
+      models: parsedModels, // Include all models for table display
       token_usage: {
         prompt_tokens: totalPromptTokens,
         completion_tokens: totalCompletionTokens,

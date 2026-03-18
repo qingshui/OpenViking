@@ -246,30 +246,84 @@ const Dashboard: React.FC = () => {
             <CardTitle>VLM Status</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <div className="text-sm text-gray-600">Provider</div>
-                <div className="text-lg font-medium">
-                  {monitoringData.vlm.provider || 'N/A'}
+            {monitoringData.vlm.models && monitoringData.vlm.models.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Provider</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prompt Tokens</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completion Tokens</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Tokens</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {monitoringData.vlm.models.map((model: any, index: number) => (
+                      <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{model.model}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{model.provider}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-mono">
+                          {model.prompt_tokens?.toLocaleString() ?? '0'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-mono">
+                          {model.completion_tokens?.toLocaleString() ?? '0'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-bold font-mono">
+                          {model.total_tokens?.toLocaleString() ?? '0'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                          {model.last_updated ? new Date(model.last_updated).toLocaleString() : 'N/A'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {monitoringData.vlm.token_usage && (
+                    <tfoot className="bg-gray-100">
+                      <tr>
+                        <td colSpan={2} className="px-4 py-3 text-sm font-medium text-gray-900 text-right">Totals:</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-gray-900 font-mono">
+                          {monitoringData.vlm.token_usage.prompt_tokens?.toLocaleString() ?? '0'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-gray-900 font-mono">
+                          {monitoringData.vlm.token_usage.completion_tokens?.toLocaleString() ?? '0'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-gray-900 font-mono">
+                          {monitoringData.vlm.token_usage.total_tokens?.toLocaleString() ?? '0'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500"></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <div className="text-sm text-gray-600">Provider</div>
+                  <div className="text-lg font-medium">
+                    {monitoringData.vlm.provider || 'N/A'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Model</div>
+                  <div className="text-lg font-medium">{monitoringData.vlm.model || 'N/A'}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Total Tokens</div>
+                  <div className="text-2xl font-bold">
+                    {monitoringData.vlm.token_usage?.total_tokens?.toLocaleString() ?? '0'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Requests</div>
+                  <div className="text-2xl font-bold">
+                    {monitoringData.vlm.request_count ?? '0'}
+                  </div>
                 </div>
               </div>
-              <div>
-                <div className="text-sm text-gray-600">Model</div>
-                <div className="text-lg font-medium">{monitoringData.vlm.model || 'N/A'}</div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Total Tokens</div>
-                <div className="text-2xl font-bold">
-                  {monitoringData.vlm.token_usage?.total_tokens?.toLocaleString() ?? '0'}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Requests</div>
-                <div className="text-2xl font-bold">
-                  {monitoringData.vlm.request_count ?? '0'}
-                </div>
-              </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       )}
