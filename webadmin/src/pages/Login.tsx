@@ -64,6 +64,9 @@ const Login: React.FC = () => {
           <p className="text-xs text-center text-gray-500">
             Use the API key from your OpenViking configuration
           </p>
+          <p className="text-xs text-center text-gray-500 mt-1">
+            Default root API key can be found in ~/.openviking/ov.conf
+          </p>
         </div>
       </div>
     </div>
