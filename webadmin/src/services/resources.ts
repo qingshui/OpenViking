@@ -69,7 +69,7 @@ export const resourceService = {
    * List resources
    */
   list: async (
-    uri: string = 'viking://resources/',
+    uri: string = 'viking:///',
     limit: number = 50,
     recursive: boolean = false
   ): Promise<APIResponse<ResourceInfo[]>> => {
@@ -86,7 +86,7 @@ export const resourceService = {
    */
   add: async (
     path: string,
-    parent: string = 'viking://resources/',
+    parent: string = 'viking:///',
     reason: string = '',
     wait: boolean = true
   ): Promise<APIResponse<string>> => {
@@ -170,7 +170,7 @@ export const resourceService = {
    */
   batchAdd: async (
     paths: string[],
-    parent: string = 'viking://resources/',
+    parent: string = 'viking:///',
     reason: string = ''
   ): Promise<APIResponse<string[]>> => {
     return handleAPI<string[]>(

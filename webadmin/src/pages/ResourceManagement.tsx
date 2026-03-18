@@ -20,7 +20,7 @@ const ResourceManagement: React.FC = () => {
   const navigate = useNavigate()
   const { addToast } = useToast()
   const [rootNodes, setRootNodes] = useState<TreeNode[]>([
-    { uri: 'viking://resources/', name: 'resources', type: 'directory', size: 0, loaded: false, expanded: false }
+    { uri: 'viking:///', name: 'root', type: 'directory', size: 0, loaded: false, expanded: false }
   ])
   const [loading, setLoading] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<TreeNode | null>(null)
@@ -102,11 +102,11 @@ const ResourceManagement: React.FC = () => {
   }
 
   const handleRefresh = async () => {
-    setLoading('viking://resources/')
-    const children = await loadChildren('viking://resources/')
+    setLoading('viking:///')
+    const children = await loadChildren('viking:///')
     setRootNodes([{
-      uri: 'viking://resources/',
-      name: 'resources',
+      uri: 'viking:///',
+      name: 'root',
       type: 'directory',
       size: 0,
       loaded: true,
@@ -213,7 +213,7 @@ const ResourceManagement: React.FC = () => {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-800">Resource Management</h1>
         <div className="flex gap-2">
-          <Button onClick={handleRefresh} loading={loading === 'viking://resources/'}>
+          <Button onClick={handleRefresh} loading={loading === 'viking:///'}>
             Refresh
           </Button>
         </div>

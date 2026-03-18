@@ -133,7 +133,7 @@ const SemanticSearch: React.FC = () => {
                   <Input
                     value={targetUri}
                     onChange={(e) => setTargetUri(e.target.value)}
-                    placeholder="viking://resources/"
+                    placeholder="viking:///"
                   />
                 </div>
                 <div>
@@ -158,7 +158,7 @@ const SemanticSearch: React.FC = () => {
                 <Input
                   value={targetUri}
                   onChange={(e) => setTargetUri(e.target.value)}
-                  placeholder="viking://resources/"
+                  placeholder="viking:///"
                 />
               </div>
               <div>

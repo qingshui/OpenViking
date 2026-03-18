@@ -14,7 +14,7 @@ export interface UseResourcesOptions {
 
 // List resources hook
 export const useResources = (options: UseResourcesOptions = {}) => {
-  const { uri = 'viking://resources/', limit = 50, recursive = false } = options
+  const { uri = 'viking:///', limit = 50, recursive = false } = options
 
   return useQuery({
     queryKey: [...RESOURCES_QUERY_KEY, uri, limit, recursive],

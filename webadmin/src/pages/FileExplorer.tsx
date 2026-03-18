@@ -13,7 +13,7 @@ import { useToast } from '../components/ui/Toast'
 type ContentLevel = 'l0' | 'l1' | 'l2'
 
 const FileExplorer: React.FC = () => {
-  const [currentUri, setCurrentUri] = useState('viking://resources/')
+  const [currentUri, setCurrentUri] = useState('viking:///')
   const [showContentModal, setShowContentModal] = useState(false)
   const [selectedUri, setSelectedUri] = useState('')
   const [contentLevel, setContentLevel] = useState<ContentLevel>('l0')
@@ -76,7 +76,7 @@ const FileExplorer: React.FC = () => {
 
   // Parse URI into breadcrumb segments
   const getBreadcrumbSegments = (uri: string) => {
-    // viking://resources/path/to/folder/ -> ['viking://', 'resources', 'path', 'to', 'folder']
+    // viking:///path/to/folder/ -> ['viking://', 'path', 'to', 'folder']
     const segments: string[] = []
     const protocolMatch = uri.match(/^(viking:\/\/)/)
     if (protocolMatch) {
@@ -119,7 +119,7 @@ const FileExplorer: React.FC = () => {
               value={currentUri}
               onChange={(e) => setCurrentUri(e.target.value)}
               className="w-96"
-              placeholder="viking://resources/"
+              placeholder="viking:///"
             />
             <Button onClick={() => refetch()}>
               Load
