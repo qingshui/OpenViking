@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """OpenAI Embedder Implementation"""
 
+import logging
 from typing import Any, Dict, List, Optional
 
-import httpx
 import openai
 
 from openviking.models.embedder.base import (
@@ -13,15 +13,23 @@ from openviking.models.embedder.base import (
     HybridEmbedderBase,
     SparseEmbedderBase,
 )
-from openviking_cli.utils.logger import default_logger as logger
+from openviking.telemetry import get_current_telemetry
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIDenseEmbedder(DenseEmbedderBase):
-    """OpenAI Dense Embedder Implementation
+    """OpenAI-Compatible Dense Embedder Implementation
 
-    Supports OpenAI embedding models such as text-embedding-3-small, text-embedding-3-large, etc.
+    Supports OpenAI embedding models (e.g., text-embedding-3-small, text-embedding-3-large)
+    and OpenAI-compatible third-party models that support non-symmetric embeddings.
+
+    Note: Official OpenAI models are symmetric and do not support the input_type parameter.
+    Non-symmetric mode (context='query'/'document') is only supported by OpenAI-compatible
+    third-party models (e.g., BGE-M3, Jina, Cohere, etc.) that implement the input_type parameter.
 
     Example:
+        >>> # Symmetric mode (official OpenAI models)
         >>> embedder = OpenAIDenseEmbedder(
         ...     model_name="text-embedding-3-small",
         ...     api_key="sk-xxx",
@@ -30,6 +38,27 @@ class OpenAIDenseEmbedder(DenseEmbedderBase):
         >>> result = embedder.embed("Hello world")
         >>> print(len(result.dense_vector))
         1536
+
+        >>> # Non-symmetric mode (OpenAI-compatible third-party models)
+        >>> embedder = OpenAIDenseEmbedder(
+        ...     model_name="bge-m3",
+        ...     api_key="your-api-key",
+        ...     api_base="https://your-api-endpoint.com/v1",
+        ...     query_param="query",
+        ...     document_param="passage"
+        ... )
+        >>> query_vector = embedder.embed("search query", is_query=True)
+        >>> doc_vector = embedder.embed("document text", is_query=False)
+
+        >>> # Multiple parameters with key=value format
+        >>> advanced_embedder = OpenAIDenseEmbedder(
+        ...     model_name="custom-model",
+        ...     api_key="your-api-key",
+        ...     api_base="https://your-api-endpoint.com/v1",
+        ...     query_param="input_type=query,task=search,domain=finance",
+        ...     document_param="input_type=passage,task=index,domain=finance"
+        ... )
+        >>> advanced_vector = advanced_embedder.embed("financial query", is_query=True)
     """
 
     def __init__(
@@ -38,54 +67,189 @@ class OpenAIDenseEmbedder(DenseEmbedderBase):
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
         dimension: Optional[int] = None,
+        query_param: Optional[str] = None,
+        document_param: Optional[str] = None,
         config: Optional[Dict[str, Any]] = None,
+        max_tokens: Optional[int] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
+        input_type: Optional[str] = None,
     ):
-        """Initialize OpenAI Dense Embedder
+        """Initialize OpenAI-Compatible Dense Embedder
 
         Args:
-            model_name: OpenAI model name, defaults to text-embedding-3-small
+            model_name: Model name. For official OpenAI models (e.g., text-embedding-3-small),
+                       use symmetric mode (query_param=None, document_param=None).
+                       For OpenAI-compatible third-party models (e.g., BGE-M3, Jina, Cohere), use
+                       non-symmetric mode with query_param/document_param.
             api_key: API key, if None will read from env vars (OPENVIKING_EMBEDDING_API_KEY or OPENAI_API_KEY)
-            api_base: API base URL, optional
+            api_base: API base URL, optional. Required for third-party OpenAI-compatible APIs.
             dimension: Dimension (if model supports), optional
+            query_param: Parameter for query-side embeddings. Supports simple values (e.g., 'query')
+                         or key=value format (e.g., 'input_type=query,task=search'). Defaults to None.
+                         Setting this (or document_param) activates non-symmetric mode.
+                         Only supported by OpenAI-compatible third-party models.
+            document_param: Parameter for document-side embeddings. Supports simple values (e.g., 'passage')
+                           or key=value format (e.g., 'input_type=passage,task=index'). Defaults to None.
+                           Setting this (or query_param) activates non-symmetric mode.
+                           Only supported by OpenAI-compatible third-party models.
             config: Additional configuration dict
+            max_tokens: Maximum token count per embedding request, None to use default (8000)
+            extra_headers: Extra HTTP headers to include in API requests (e.g., for OpenRouter:
+                          {'HTTP-Referer': 'https://your-site.com', 'X-Title': 'Your App'})
 
         Raises:
             ValueError: If api_key is not provided and env vars are not set
+
+        Note:
+            Official OpenAI models (e.g., text-embedding-3-small, text-embedding-3-large) are
+            symmetric and do not support the input_type parameter. Non-symmetric mode is only
+            supported by OpenAI-compatible third-party models (e.g., BGE-M3, Jina, Cohere) that
+            implement the input_type parameter.
         """
-        super().__init__(model_name, config)
+        super().__init__(model_name, config, max_tokens=max_tokens)
 
         self.api_key = api_key
         self.api_base = api_base
         self.dimension = dimension
+        self.query_param = query_param
+        self.document_param = document_param
 
-        if not self.api_key:
+        # Allow missing api_key when api_base is set (e.g. local OpenAI-compatible servers)
+        if not self.api_key and not self.api_base:
             raise ValueError("api_key is required")
 
         # Initialize OpenAI client
-        client_kwargs = {"api_key": self.api_key}
+        # Use a placeholder api_key when not provided (for local OpenAI-compatible servers)
+        client_kwargs = {"api_key": self.api_key or "no-key"}
         if self.api_base:
             client_kwargs["base_url"] = self.api_base
+        # 透传自定义请求头（如 OpenRouter 要求的 HTTP-Referer / X-Title）
+        if extra_headers:
+            client_kwargs["default_headers"] = extra_headers
         self.client = openai.OpenAI(**client_kwargs)
+
+        # Initialize tiktoken encoder
+        self._tiktoken_enc = None
+        try:
+            import tiktoken
+
+            self._tiktoken_enc = tiktoken.encoding_for_model(model_name)
+        except Exception:
+            logger.info(
+                "tiktoken unavailable for model '%s', will use character-based estimation",
+                model_name,
+            )
 
         # Auto-detect dimension
         self._dimension = dimension
         if self._dimension is None:
             self._dimension = self._detect_dimension()
 
+    @property
+    def max_tokens(self) -> int:
+        """OpenAI embedding models have 8192 token limit; use 8000 for safety buffer.
+
+        Can be overridden via the max_tokens constructor parameter.
+        """
+        if self._max_tokens is not None:
+            return self._max_tokens
+        return 8000
+
+    def _estimate_tokens(self, text: str) -> int:
+        """Estimate tokens using tiktoken if available, fallback to len(text) // 3."""
+        if self._tiktoken_enc is not None:
+            return len(self._tiktoken_enc.encode(text))
+        return len(text) // 3
+
     def _detect_dimension(self) -> int:
         """Detect dimension by making an actual API call"""
         try:
-            result = self.embed("test")
+            result = self._embed_single("test", is_query=False)
             return len(result.dense_vector) if result.dense_vector else 1536
         except Exception:
             # Use default value, text-embedding-3-small defaults to 1536
             return 1536
 
-    def embed(self, text: str) -> EmbedResult:
-        """Perform dense embedding on text
+    def _update_telemetry_token_usage(self, response) -> None:
+        usage = getattr(response, "usage", None)
+        if not usage:
+            return
+
+        def _usage_value(key: str, default: int = 0) -> int:
+            if isinstance(usage, dict):
+                return int(usage.get(key, default) or default)
+            return int(getattr(usage, key, default) or default)
+
+        prompt_tokens = _usage_value("prompt_tokens", 0)
+        total_tokens = _usage_value("total_tokens", prompt_tokens)
+        output_tokens = max(total_tokens - prompt_tokens, 0)
+        get_current_telemetry().add_token_usage_by_source(
+            "embedding",
+            prompt_tokens,
+            output_tokens,
+        )
+
+    def _parse_param_string(self, param: Optional[str]) -> Dict[str, str]:
+        """Parse parameter string to dictionary for key=value format
+
+        Args:
+            param: Parameter string (e.g., "input_type=query,task=search")
+
+        Returns:
+            Dictionary of parsed parameters
+        """
+        if not param:
+            return {}
+
+        result = {}
+
+        # Split by comma for multiple parameters
+        parts = [p.strip() for p in param.split(",")]
+
+        for part in parts:
+            if "=" in part:
+                key, value = part.split("=", 1)
+                result[key.strip()] = value.strip()
+
+        return result
+
+    def _build_extra_body(self, is_query: bool = False) -> Optional[Dict[str, Any]]:
+        """Build extra_body dict for OpenAI-compatible parameters
+
+        Args:
+            is_query: Flag to indicate if this is for query embeddings
+
+        Returns:
+            Dict containing input_type and other parameters if non-symmetric mode is active.
+            Supports key=value format for multiple parameters (e.g., "input_type=query,task=search").
+            Only supported by OpenAI-compatible third-party models.
+        """
+        extra_body = {}
+
+        # Determine which parameter to use based on is_query flag
+        active_param = None
+        if is_query and self.query_param is not None:
+            active_param = self.query_param
+        elif not is_query and self.document_param is not None:
+            active_param = self.document_param
+
+        if active_param:
+            if "=" in active_param:
+                # Parse key=value format (e.g., "input_type=query,task=search")
+                parsed = self._parse_param_string(active_param)
+                extra_body.update(parsed)
+            else:
+                # Simple format (e.g., "query" -> {"input_type": "query"})
+                extra_body["input_type"] = active_param
+
+        return extra_body if extra_body else None
+
+    def _embed_single(self, text: str, is_query: bool = False) -> EmbedResult:
+        """Perform raw embedding without chunking logic.
 
         Args:
             text: Input text
+            is_query: Flag to indicate if this is a query embedding
 
         Returns:
             EmbedResult: Result containing only dense_vector
@@ -94,11 +258,14 @@ class OpenAIDenseEmbedder(DenseEmbedderBase):
             RuntimeError: When API call fails
         """
         try:
-            kwargs = {"input": text, "model": self.model_name}
-            if self.dimension:
-                kwargs["dimensions"] = self.dimension
+            kwargs: Dict[str, Any] = {"input": text, "model": self.model_name}
+
+            extra_body = self._build_extra_body(is_query=is_query)
+            if extra_body:
+                kwargs["extra_body"] = extra_body
 
             response = self.client.embeddings.create(**kwargs)
+            self._update_telemetry_token_usage(response)
             vector = response.data[0].embedding
 
             return EmbedResult(dense_vector=vector)
@@ -107,11 +274,35 @@ class OpenAIDenseEmbedder(DenseEmbedderBase):
         except Exception as e:
             raise RuntimeError(f"Embedding failed: {str(e)}") from e
 
-    def embed_batch(self, texts: List[str]) -> List[EmbedResult]:
-        """Batch embedding (OpenAI native support)
+    def embed(self, text: str, is_query: bool = False) -> EmbedResult:
+        """Embed single text, with automatic chunking for oversized input.
+
+        Args:
+            text: Input text
+            is_query: Flag to indicate if this is a query embedding
+
+        Returns:
+            EmbedResult: Result containing only dense_vector
+
+        Raises:
+            RuntimeError: When API call fails
+        """
+        if not text:
+            return self._embed_single(text, is_query=is_query)
+
+        if self._estimate_tokens(text) > self.max_tokens:
+            return self._chunk_and_embed(text, is_query=is_query)
+        return self._embed_single(text, is_query=is_query)
+
+    def embed_batch(self, texts: List[str], is_query: bool = False) -> List[EmbedResult]:
+        """Batch embedding with automatic chunking for oversized inputs.
+
+        Short texts are batched together via the OpenAI API for efficiency.
+        Oversized texts are individually chunked and embedded.
 
         Args:
             texts: List of texts
+            is_query: Flag to indicate if these are query embeddings
 
         Returns:
             List[EmbedResult]: List of embedding results
@@ -122,18 +313,35 @@ class OpenAIDenseEmbedder(DenseEmbedderBase):
         if not texts:
             return []
 
-        try:
-            kwargs = {"input": texts, "model": self.model_name}
-            if self.dimension:
-                kwargs["dimensions"] = self.dimension
+        results: List[Optional[EmbedResult]] = [None] * len(texts)
+        short_indices: List[int] = []
+        short_texts: List[str] = []
 
-            response = self.client.embeddings.create(**kwargs)
+        for i, text in enumerate(texts):
+            if text and self._estimate_tokens(text) > self.max_tokens:
+                results[i] = self._chunk_and_embed(text, is_query=is_query)
+            else:
+                short_indices.append(i)
+                short_texts.append(text)
 
-            return [EmbedResult(dense_vector=item.embedding) for item in response.data]
-        except openai.APIError as e:
-            raise RuntimeError(f"OpenAI API error: {e.message}") from e
-        except Exception as e:
-            raise RuntimeError(f"Batch embedding failed: {str(e)}") from e
+        if short_texts:
+            try:
+                kwargs: Dict[str, Any] = {"input": short_texts, "model": self.model_name}
+
+                extra_body = self._build_extra_body(is_query=is_query)
+                if extra_body:
+                    kwargs["extra_body"] = extra_body
+
+                response = self.client.embeddings.create(**kwargs)
+                self._update_telemetry_token_usage(response)
+                for idx, item in zip(short_indices, response.data):
+                    results[idx] = EmbedResult(dense_vector=item.embedding)
+            except openai.APIError as e:
+                raise RuntimeError(f"OpenAI API error: {e.message}") from e
+            except Exception as e:
+                raise RuntimeError(f"Batch embedding failed: {str(e)}") from e
+
+        return results  # type: ignore[return-value]
 
     def get_dimension(self) -> int:
         """Get embedding dimension
@@ -156,7 +364,7 @@ class OpenAISparseEmbedder(SparseEmbedderBase):
             "Consider using VolcengineSparseEmbedder or other providers."
         )
 
-    def embed(self, text: str) -> EmbedResult:
+    def embed(self, text: str, is_query: bool = False) -> EmbedResult:
         raise NotImplementedError()
 
 
@@ -172,216 +380,8 @@ class OpenAIHybridEmbedder(HybridEmbedderBase):
             "Consider using VolcengineHybridEmbedder or other providers."
         )
 
-    def embed(self, text: str) -> EmbedResult:
+    def embed(self, text: str, is_query: bool = False) -> EmbedResult:
         raise NotImplementedError()
 
     def get_dimension(self) -> int:
         raise NotImplementedError()
-
-
-class OpenAICompatibleDenseEmbedder(DenseEmbedderBase):
-    """OpenAI-Compatible Dense Embedder for custom embedding endpoints
-
-    Supports any OpenAI-compatible embedding API that may return non-standard response formats.
-    Uses httpx directly instead of the OpenAI SDK for more flexible response handling.
-
-    Example:
-        >>> embedder = OpenAICompatibleDenseEmbedder(
-        ...     model_name="qwen3-embedding",
-        ...     api_key="your-key",
-        ...     api_base="http://localhost:8001",
-        ...     dimension=1024
-        ... )
-        >>> result = embedder.embed("Hello world")
-        >>> print(len(result.dense_vector))
-        1024
-    """
-
-    def __init__(
-        self,
-        model_name: str = "text-embedding-3-small",
-        api_key: Optional[str] = None,
-        api_base: Optional[str] = None,
-        dimension: Optional[int] = None,
-        config: Optional[Dict[str, Any]] = None,
-    ):
-        """Initialize OpenAI-Compatible Dense Embedder
-
-        Args:
-            model_name: Model name for the embedding API
-            api_key: API key for authentication
-            api_base: Base URL for the embedding API (e.g., http://localhost:8001)
-            dimension: Target dimension for embeddings
-            config: Additional configuration dict
-
-        Raises:
-            ValueError: If api_key or api_base is not provided
-        """
-        super().__init__(model_name, config)
-
-        self.api_key = api_key
-        self.api_base = api_base
-        self.dimension = dimension
-
-        if not self.api_key:
-            raise ValueError("api_key is required")
-        if not self.api_base:
-            raise ValueError("api_base is required for openai_compatible provider")
-
-        # Normalize api_base - remove trailing /embeddings if present
-        if self.api_base.endswith("/embeddings"):
-            self.api_base = self.api_base[:-11]  # Remove "/embeddings"
-
-        self._dimension = dimension or 1024
-
-    def _extract_embedding(self, data: Any) -> List[float]:
-        """Extract embedding vector from various response formats
-
-        Handles multiple response formats:
-        1. Standard OpenAI: {"data": [{"embedding": [...]}]}
-        2. Simple list: [{"embedding": [...]}]
-        3. Nested list: [{"embedding": [[...]]}]
-        4. Direct embedding: {"embedding": [...]}
-
-        Args:
-            data: Parsed JSON response
-
-        Returns:
-            List[float]: The embedding vector
-
-        Raises:
-            ValueError: If embedding cannot be extracted
-        """
-        # Standard OpenAI format: {"data": [...]}
-        if isinstance(data, dict) and "data" in data:
-            items = data["data"]
-            if isinstance(items, list) and len(items) > 0:
-                item = items[0]
-                if isinstance(item, dict) and "embedding" in item:
-                    emb = item["embedding"]
-                    # Handle nested list format
-                    if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
-                        return emb[0]
-                    return emb
-
-        # List format: [{"embedding": ...}]
-        if isinstance(data, list) and len(data) > 0:
-            item = data[0]
-            if isinstance(item, dict) and "embedding" in item:
-                emb = item["embedding"]
-                # Handle nested list format
-                if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
-                    return emb[0]
-                return emb
-
-        # Direct embedding: {"embedding": [...]}
-        if isinstance(data, dict) and "embedding" in data:
-            emb = data["embedding"]
-            if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
-                return emb[0]
-            return emb
-
-        raise ValueError(f"Cannot extract embedding from response format: {type(data)}")
-
-    def embed(self, text: str) -> EmbedResult:
-        """Perform dense embedding on text
-
-        Args:
-            text: Input text
-
-        Returns:
-            EmbedResult: Result containing only dense_vector
-
-        Raises:
-            RuntimeError: When API call fails
-        """
-        url = f"{self.api_base}/embeddings"
-        payload = {"input": text, "model": self.model_name}
-
-        try:
-            with httpx.Client(timeout=60.0) as client:
-                response = client.post(
-                    url,
-                    json=payload,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                )
-
-            if response.status_code != 200:
-                raise RuntimeError(
-                    f"Embedding API returned status {response.status_code}: {response.text}"
-                )
-
-            data = response.json()
-            vector = self._extract_embedding(data)
-
-            return EmbedResult(dense_vector=vector)
-
-        except httpx.HTTPError as e:
-            raise RuntimeError(f"HTTP error during embedding: {str(e)}") from e
-        except Exception as e:
-            raise RuntimeError(f"Embedding failed: {str(e)}") from e
-
-    def embed_batch(self, texts: List[str]) -> List[EmbedResult]:
-        """Batch embedding
-
-        Args:
-            texts: List of texts
-
-        Returns:
-            List[EmbedResult]: List of embedding results
-
-        Raises:
-            RuntimeError: When API call fails
-        """
-        if not texts:
-            return []
-
-        url = f"{self.api_base}/embeddings"
-        payload = {"input": texts, "model": self.model_name}
-
-        try:
-            with httpx.Client(timeout=60.0) as client:
-                response = client.post(
-                    url,
-                    json=payload,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                )
-
-            if response.status_code != 200:
-                raise RuntimeError(
-                    f"Embedding API returned status {response.status_code}: {response.text}"
-                )
-
-            data = response.json()
-
-            # Handle batch response formats
-            results = []
-            if isinstance(data, dict) and "data" in data:
-                items = data["data"]
-            elif isinstance(data, list):
-                items = data
-            else:
-                raise ValueError(f"Cannot parse batch response: {type(data)}")
-
-            for item in items:
-                if isinstance(item, dict) and "embedding" in item:
-                    emb = item["embedding"]
-                    if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
-                        results.append(EmbedResult(dense_vector=emb[0]))
-                    else:
-                        results.append(EmbedResult(dense_vector=emb))
-
-            return results
-
-        except httpx.HTTPError as e:
-            raise RuntimeError(f"HTTP error during batch embedding: {str(e)}") from e
-        except Exception as e:
-            raise RuntimeError(f"Batch embedding failed: {str(e)}") from e
-
-    def get_dimension(self) -> int:
-        """Get embedding dimension
-
-        Returns:
-            int: Vector dimension
-        """
-        return self._dimension
