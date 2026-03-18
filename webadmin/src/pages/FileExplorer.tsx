@@ -74,6 +74,36 @@ const FileExplorer: React.FC = () => {
     )
   }
 
+  // Parse URI into breadcrumb segments
+  const getBreadcrumbSegments = (uri: string) => {
+    // viking://resources/path/to/folder/ -> ['viking://', 'resources', 'path', 'to', 'folder']
+    const segments: string[] = []
+    const protocolMatch = uri.match(/^(viking:\/\/)/)
+    if (protocolMatch) {
+      segments.push(protocolMatch[1])
+      const rest = uri.slice(protocolMatch[1].length)
+      const parts = rest.split('/').filter(p => p !== '')
+      segments.push(...parts)
+    }
+    return segments
+  }
+
+  // Build URI from segments up to index
+  const buildUriFromSegments = (segments: string[], endIndex: number) => {
+    const protocol = segments[0]
+    const pathParts = segments.slice(1, endIndex + 1)
+    return `${protocol}${pathParts.join('/')}/`
+  }
+
+  // Navigate to a specific path segment
+  const navigateToSegment = (segments: string[], endIndex: number) => {
+    const newUri = buildUriFromSegments(segments, endIndex)
+    setCurrentUri(newUri)
+    refetch()
+  }
+
+  const breadcrumbSegments = getBreadcrumbSegments(currentUri)
+
   const fileList = files?.success ? files.data || [] : []
 
   return (
@@ -104,6 +134,33 @@ const FileExplorer: React.FC = () => {
         </CardContent>
       </Card>
 
+      {/* Breadcrumb Navigation */}
+      <Card>
+        <CardContent className="pt-4">
+          <div className="flex items-center flex-wrap gap-1 text-sm">
+            {breadcrumbSegments.map((segment, index) => (
+              <React.Fragment key={index}>
+                {index > 0 && (
+                  <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                  </svg>
+                )}
+                {index < breadcrumbSegments.length - 1 ? (
+                  <button
+                    onClick={() => navigateToSegment(breadcrumbSegments, index)}
+                    className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
+                  >
+                    {segment}
+                  </button>
+                ) : (
+                  <span className="text-gray-700 font-medium">{segment}</span>
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Files Grid */}
       <Card>
         <CardHeader>
@@ -119,14 +176,27 @@ const FileExplorer: React.FC = () => {
               {fileList.map((file: any) => (
                 <div
                   key={file.uri}
-                  className="border rounded-lg p-4 hover:shadow-md transition-shadow"
+                  className="border rounded-lg p-4 hover:shadow-md transition-shadow overflow-hidden"
                 >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-start justify-between mb-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       {getIcon(file.type)}
-                      <div>
-                        <div className="font-medium text-gray-900">{file.name}</div>
-                        <div className="text-xs text-gray-500 font-mono">{file.uri}</div>
+                      <div className="min-w-0 flex-1">
+                        {file.type === 'directory' ? (
+                          <button
+                            onClick={() => {
+                              setCurrentUri(file.uri)
+                              refetch()
+                            }}
+                            className="font-medium text-gray-900 truncate hover:text-blue-600 hover:underline text-left w-full"
+                            title={file.uri}
+                          >
+                            {file.name}
+                          </button>
+                        ) : (
+                          <div className="font-medium text-gray-900 truncate" title={file.uri}>{file.name}</div>
+                        )}
+                        <div className="text-xs text-gray-500 font-mono truncate" title={file.uri}>{file.uri}</div>
                       </div>
                     </div>
                   </div>
