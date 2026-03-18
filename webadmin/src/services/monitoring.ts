@@ -304,8 +304,14 @@ const normalizeVLMStats = (backend: BackendVLMResponse): VLMStats => {
   return {
     provider,
     model,
-    token_usage: { total_tokens: totalTokens },
-    request_count: 0
+    models: [], // Empty array when no models parsed
+    token_usage: {
+      total_tokens: totalTokens,
+      prompt_tokens: 0,
+      completion_tokens: 0
+    },
+    request_count: 0,
+    avg_response_time_ms: undefined
   }
 }
 
