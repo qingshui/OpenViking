@@ -17,18 +17,55 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    const apikey = localStorage.getItem('ov_api_key')
-    const username = localStorage.getItem('ov_username')
+    const verifyAuth = async () => {
+      const apikey = localStorage.getItem('ov_api_key')
+      const username = localStorage.getItem('ov_username')
 
-    if (apikey) {
-      setIsAuthenticated(true)
-      setUser({
-        uid: 'current',
-        username: username || 'admin',
-        role: 'USER'
-      })
+      if (!apikey) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        // Verify API key by calling /system/status
+        const response = await fetch('/api/v1/system/status', {
+          method: 'GET',
+          headers: {
+            'X-API-Key': apikey,
+            'Content-Type': 'application/json'
+          }
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          if (data.status === 'ok') {
+            setIsAuthenticated(true)
+            setUser({
+              uid: 'current',
+              username: username || 'admin',
+              role: 'USER'
+            })
+          } else {
+            // Invalid API key
+            localStorage.removeItem('ov_api_key')
+            localStorage.removeItem('ov_username')
+          }
+        } else {
+          // API error
+          localStorage.removeItem('ov_api_key')
+          localStorage.removeItem('ov_username')
+        }
+      } catch (error) {
+        // Network error or server down
+        console.error('Auth verification failed:', error)
+        localStorage.removeItem('ov_api_key')
+        localStorage.removeItem('ov_username')
+      } finally {
+        setIsLoading(false)
+      }
     }
-    setIsLoading(false)
+
+    verifyAuth()
   }, [])
 
   const login = async (apikey: string) => {

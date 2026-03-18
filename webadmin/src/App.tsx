@@ -12,32 +12,35 @@ import FileExplorer from './pages/FileExplorer'
 import SemanticSearch from './pages/SemanticSearch'
 import Layout from './components/common/Layout'
 
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+
+const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth()
 
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-600">Loading...</div>
+        <div className="text-gray-600">Loading authentication...</div>
       </div>
     )
   }
 
-  return isAuthenticated ? <>{children}</> : <Login />
-}
+  // If not authenticated, show login page without layout
+  if (!isAuthenticated) {
+    return <Login />
+  }
 
-const AppContent: React.FC = () => {
+  // Authenticated - show layout with protected routes
   return (
     <Layout>
       <React.Suspense fallback={<div>Loading...</div>}>
         <Routes>
-          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/resources" element={<ProtectedRoute><ResourceManagement /></ProtectedRoute>} />
-          <Route path="/resources/:uri" element={<ProtectedRoute><ResourceDetail /></ProtectedRoute>} />
-          <Route path="/sessions" element={<ProtectedRoute><SessionManagement /></ProtectedRoute>} />
-          <Route path="/filesystem" element={<ProtectedRoute><FileExplorer /></ProtectedRoute>} />
-          <Route path="/search" element={<ProtectedRoute><SemanticSearch /></ProtectedRoute>} />
-          <Route path="*" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/resources" element={<ResourceManagement />} />
+          <Route path="/resources/:uri" element={<ResourceDetail />} />
+          <Route path="/sessions" element={<SessionManagement />} />
+          <Route path="/filesystem" element={<FileExplorer />} />
+          <Route path="/search" element={<SemanticSearch />} />
+          <Route path="*" element={<Dashboard />} />
         </Routes>
       </React.Suspense>
     </Layout>
