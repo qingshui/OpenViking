@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { Input, Button } from '../components'
 
 const Login: React.FC = () => {
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
+  const [apikey, setApikey] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const { login } = useAuth()
@@ -16,7 +16,7 @@ const Login: React.FC = () => {
     setLoading(true)
 
     try {
-      await login(username, password)
+      await login(apikey)
       navigate('/')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
@@ -32,44 +32,39 @@ const Login: React.FC = () => {
         <p className="text-center text-gray-600 mb-8">Admin Console</p>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Username</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Enter username"
-              disabled={loading}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Enter password"
-              disabled={loading}
-            />
-          </div>
+          <Input
+            label="API Key"
+            type="password"
+            value={apikey}
+            onChange={(e) => setApikey(e.target.value)}
+            placeholder="Enter your API key"
+            disabled={loading}
+            helperText="Enter your API key to access the admin console"
+          />
 
           {error && (
-            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg text-sm">
+            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg text-sm flex items-center">
+              <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                  clipRule="evenodd"
+                />
+              </svg>
               {error}
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-          >
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
+          <Button type="submit" loading={loading} className="w-full">
+            Sign In
+          </Button>
         </form>
+
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <p className="text-xs text-center text-gray-500">
+            Use the API key from your OpenViking configuration
+          </p>
+        </div>
       </div>
     </div>
   )

@@ -488,7 +488,7 @@ Web Admin provides a web-based interface for managing OpenViking:
 bash scripts/webadmin-deploy.sh deploy
 
 # Start Web Admin services
-~/.openviking/webadmin/services.sh start
+~/.openviking/services.sh start-webadmin-frontend
 
 # Access at http://localhost:5173
 ```
@@ -506,14 +506,24 @@ For production environments, we recommend running OpenViking as a standalone HTT
 OpenViking consists of three main components:
 
 ```
-┌─────────────────┐         ┌──────────────────┐         ┌─────────────────┐
-│   Web Browser   │         │  WebAdmin Backend│         │ OpenViking API  │
-│                 │         │  (Node.js:3000)  │         │  (Python:1933)  │
-│  - React SPA    │────────▶│  - Config Mgmt   │────────▶│  - REST API     │
-│  - UI Components│         │  - API Proxy     │         │  - Business Log │
-└─────────────────┘         └──────────────────┘         └─────────────────┘
-         │                           │                          │
-         ▼                           ▼                          ▼
+┌─────────────────┐         ┌──────────────────────────────────┐
+│   Web Browser   │         │         OpenViking API           │
+│                 │         │  (Python:1933)                   │
+│  - React SPA    │────────▶│  - REST API                      │
+│  - UI Components│         │  - Business Logic                │
+│  - Local State  │         │  - VikingDB (Vector DB)          │
+└─────────────────┘         └──────────────────────────────────┘
+         │
+         │  X-API-Key Header
+         ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    Service Layer                              │
+│  - Axios with Interceptors                                   │
+│  - Request/Response Error Handling                           │
+│  - React Query Caching                                       │
+└──────────────────────────────────────────────────────────────┘
+         │
+         ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                        AGFS Server (Port 1833)                          │
 │  - Local File System Mount                                              │
@@ -528,7 +538,6 @@ OpenViking consists of three main components:
 │  ┌────────────────────────────────────────────────────────────────────┐ │
 │  │                        Nginx Proxy                                 │ │
 │  │  - Port 8173 → WebAdmin Frontend (5173)                           │ │
-│  │  - /api → WebAdmin Backend (3000)                                 │ │
 │  │  - Port 8933 → OpenViking API (1933)                              │ │
 │  └────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -602,8 +611,9 @@ Create configuration file `~/.openviking/ov.conf`:
 ~/.openviking/services.sh start
 
 # Or use individual service management scripts:
+~/.openviking/services.sh start           # All services
 ~/.openviking/agfs-services.sh start      # AGFS only
-~/.openviking/webadmin/services.sh start  # Web Admin only
+~/.openviking/services.sh start-webadmin-frontend  # Web Admin only
 ```
 
 **4. Access Services:**
@@ -620,7 +630,6 @@ server {
     listen 8173;
     server_name <your-server-hostname>;
 
-    # Frontend static files
     location / {
         proxy_pass http://localhost:5173;
         proxy_http_version 1.1;
@@ -628,18 +637,6 @@ server {
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_cache_bypass $http_upgrade;
-    }
-
-    # Backend API
-    location /api {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 
@@ -671,23 +668,17 @@ After deployment, the services are organized in `$HOME/.openviking/`:
 │   └── agfs-services.sh          # Service management script
 ├── agfs_data/                     # AGFS data storage
 ├── webadmin/                      # Web Admin service
-│   ├── backend/                   # Node.js backend
-│   │   ├── server.js
-│   │   ├── package.json
-│   │   └── node_modules/
 │   ├── dist/                      # Frontend build artifacts
 │   ├── node_modules/              # Frontend dependencies
-│   └── services.sh                # Service management script
+│   ├── nginx.conf                # Nginx configuration
+│   └── services.sh               # Service management script
 ├── data/                          # OpenViking data storage
 ├── log/                           # Log files
 │   ├── agfs.log
-│   ├── server.log
-│   ├── webadmin-backend.log
-│   └── webadmin-frontend.log
+│   └── server.log
 ├── ov.conf                        # OpenViking configuration
 ├── services.sh                    # Main service management script
 ├── agfs-services.sh               # AGFS service management script
-├── webadmin/services.sh           # Web Admin service management script
 └── webadmin-deploy.sh             # Web Admin deployment script
 ```
 

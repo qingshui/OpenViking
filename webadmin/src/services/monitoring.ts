@@ -1,0 +1,338 @@
+import apiClient, { handleAPI, APIResponse } from './api'
+
+// Monitoring data types
+export interface SystemStatus {
+  status: 'healthy' | 'warning' | 'error'
+  message?: string
+  uptime?: number
+  last_check?: string
+}
+
+// Backend system response format (from /observer/system)
+export interface BackendSystemResponse {
+  is_healthy: boolean
+  errors: string[]
+  components: Record<string, {
+    name: string
+    is_healthy: boolean
+    has_errors: boolean
+    status: string
+  }>
+}
+
+export interface QueueInfo {
+  queue_name: string
+  queue_length: number
+  processing: boolean
+  last_updated?: string
+}
+
+export interface QueueStats {
+  embedding_queue?: QueueInfo
+  semantic_queue?: QueueInfo
+  other_queues?: Record<string, QueueInfo>
+  [key: string]: any
+}
+
+export interface ResourceStats {
+  total_resources: number
+  total_size: number
+  by_type?: Record<string, number>
+  by_directory?: Record<string, number>
+  recent_additions?: number
+  [key: string]: any
+}
+
+export interface VikingDBStatus {
+  collections: number
+  total_vectors: number
+  storage_used: number
+  query_performance?: {
+    avg_latency_ms?: number
+    queries_per_second?: number
+  }
+  [key: string]: any
+}
+
+export interface VLMStats {
+  provider: string
+  model: string
+  token_usage?: {
+    total_tokens?: number
+    prompt_tokens?: number
+    completion_tokens?: number
+  }
+  request_count?: number
+  avg_response_time_ms?: number
+  [key: string]: any
+}
+
+export interface SystemInfo {
+  cpu_usage?: number
+  memory_usage?: number
+  disk_usage?: number
+  active_sessions?: number
+  active_tasks?: number
+}
+
+export interface MonitoringSummary {
+  system: SystemStatus
+  queue: QueueStats
+  resources: ResourceStats
+  vikingdb: VikingDBStatus
+  vlm: VLMStats
+  systemInfo: SystemInfo
+  last_updated: string
+  [key: string]: any
+}
+
+// Backend queue response format
+export interface BackendQueueResponse {
+  name: string
+  is_healthy: boolean
+  has_errors: boolean
+  status: string
+  queues: {
+    embedding: {
+      pending: number
+      in_progress: number
+      processed: number
+      error_count: number
+    }
+    semantic: {
+      pending: number
+      in_progress: number
+      processed: number
+      error_count: number
+    }
+  }
+  services: Record<string, any>
+}
+
+// Normalize backend queue response
+const normalizeQueueStats = (backend: BackendQueueResponse): QueueStats => ({
+  embedding_queue: {
+    queue_name: 'embedding',
+    queue_length: backend.queues.embedding.pending,
+    processing: backend.queues.embedding.in_progress > 0,
+    last_updated: new Date().toISOString()
+  },
+  semantic_queue: {
+    queue_name: 'semantic',
+    queue_length: backend.queues.semantic.pending,
+    processing: backend.queues.semantic.in_progress > 0,
+    last_updated: new Date().toISOString()
+  }
+})
+
+// Backend VikingDB response format
+export interface BackendVikingDBResponse {
+  name: string
+  is_healthy: boolean
+  has_errors: boolean
+  status: string
+}
+
+// Normalize backend VikingDB response
+const normalizeVikingDBStatus = (backend: BackendVikingDBResponse): VikingDBStatus => {
+  // Parse the table string to extract values
+  const lines = backend.status.split('\n')
+  const dataLine = lines.find(l => l.includes('|  context  |')) || lines.find(l => l.includes('| context |'))
+
+  if (dataLine) {
+    const parts = dataLine.split('|').map(s => s.trim()).filter(s => s)
+    if (parts.length >= 3) {
+      return {
+        collections: parseInt(parts[1]) || 0,
+        total_vectors: parseInt(parts[2]) || 0,
+        storage_used: 0,
+        query_performance: {}
+      }
+    }
+  }
+
+  return {
+    collections: 0,
+    total_vectors: 0,
+    storage_used: 0,
+    query_performance: {}
+  }
+}
+
+// Backend VLM response format
+export interface BackendVLMResponse {
+  name: string
+  is_healthy: boolean
+  has_errors: boolean
+  status: string
+}
+
+// Normalize backend VLM response
+const normalizeVLMStats = (backend: BackendVLMResponse): VLMStats => {
+  if (backend.status.includes('No token usage data available.')) {
+    return {
+      provider: 'OpenAI',
+      model: 'gpt-4o',
+      token_usage: { total_tokens: 0 },
+      request_count: 0
+    }
+  }
+
+  return {
+    provider: 'OpenAI',
+    model: 'gpt-4o',
+    token_usage: { total_tokens: 0 },
+    request_count: 0
+  }
+}
+
+// Monitoring service
+export const monitoringService = {
+  /**
+   * Get system health status (from observer/system)
+   */
+  getSystemStatus: async (): Promise<APIResponse<SystemStatus>> => {
+    return handleAPI<BackendSystemResponse>(
+      apiClient.get('/observer/system')
+    ).then(res => ({
+      ...res,
+      data: res.data ? {
+        status: res.data.is_healthy ? 'healthy' : (res.data.errors?.length > 0 ? 'error' : 'warning'),
+        message: res.data.errors?.join(', ') || undefined
+      } : undefined
+    }))
+  },
+
+  /**
+   * Get queue status
+   */
+  getQueueStatus: async (): Promise<APIResponse<QueueStats>> => {
+    return handleAPI<BackendQueueResponse>(
+      apiClient.get('/observer/queue')
+    ).then(res => ({
+      ...res,
+      data: res.data ? normalizeQueueStats(res.data) : undefined
+    }))
+  },
+
+  /**
+   * Get VikingDB status
+   */
+  getVikingDBStatus: async (): Promise<APIResponse<VikingDBStatus>> => {
+    return handleAPI<BackendVikingDBResponse>(
+      apiClient.get('/observer/vikingdb')
+    ).then(res => ({
+      ...res,
+      data: res.data ? normalizeVikingDBStatus(res.data) : undefined
+    }))
+  },
+
+  /**
+   * Get VLM status
+   */
+  getVLMStatus: async (): Promise<APIResponse<VLMStats>> => {
+    return handleAPI<BackendVLMResponse>(
+      apiClient.get('/observer/vlm')
+    ).then(res => ({
+      ...res,
+      data: res.data ? normalizeVLMStats(res.data) : undefined
+    }))
+  },
+
+  /**
+   * Get system info (from observer/system components)
+   */
+  getSystemInfo: async (): Promise<APIResponse<SystemInfo>> => {
+    return handleAPI<BackendSystemResponse>(
+      apiClient.get('/observer/system')
+    ).then(res => ({
+      ...res,
+      data: res.data ? {
+        active_sessions: 0,
+        active_tasks: 0
+      } : undefined
+    }))
+  },
+
+  /**
+   * Get all monitoring data
+   */
+  getAll: async (): Promise<APIResponse<MonitoringSummary>> => {
+    try {
+      // Fetch all monitoring data in parallel
+      const [
+        systemResponse,
+        queueResponse,
+        vikingDBResponse,
+        vlmResponse,
+        systemInfoResponse,
+        resourceStatsResponse
+      ] = await Promise.all([
+        monitoringService.getSystemStatus(),
+        monitoringService.getQueueStatus(),
+        monitoringService.getVikingDBStatus(),
+        monitoringService.getVLMStatus(),
+        monitoringService.getSystemInfo(),
+        monitoringService.getResourceStats()
+      ])
+
+      const summary: MonitoringSummary = {
+        system: systemResponse.data || { status: 'unknown' as any },
+        queue: queueResponse.data || { embedding_queue: { queue_name: '', queue_length: 0, processing: false }, semantic_queue: { queue_name: '', queue_length: 0, processing: false } },
+        resources: resourceStatsResponse.data || { total_resources: 0, total_size: 0 },
+        vikingdb: vikingDBResponse.data || { collections: 0, total_vectors: 0, storage_used: 0 },
+        vlm: vlmResponse.data || { provider: '', model: '' },
+        systemInfo: systemInfoResponse.data || {},
+        last_updated: new Date().toISOString()
+      }
+
+      return {
+        success: true,
+        data: summary
+      }
+    } catch (error) {
+      const apiError = error as APIResponse
+      return {
+        success: false,
+        error: apiError.error || 'Failed to fetch monitoring data'
+      }
+    }
+  },
+
+  /**
+   * Get resource statistics
+   */
+  getResourceStats: async (): Promise<APIResponse<ResourceStats>> => {
+    // This would need a dedicated API endpoint
+    // For now, return empty stats
+    return {
+      success: true,
+      data: {
+        total_resources: 0,
+        total_size: 0
+      }
+    }
+  },
+
+  /**
+   * Get task statistics
+   */
+  getTaskStats: async (): Promise<APIResponse<{
+    active: number
+    completed: number
+    failed: number
+  }>> => {
+    return handleAPI<any>(
+      apiClient.get('/tasks')
+    ).then(res => ({
+      ...res,
+      data: res.data ? {
+        active: (res.data.filter((t: any) => t.status === 'running').length) || 0,
+        completed: (res.data.filter((t: any) => t.status === 'completed').length) || 0,
+        failed: (res.data.filter((t: any) => t.status === 'failed').length) || 0
+      } : { active: 0, completed: 0, failed: 0 }
+    }))
+  }
+}
+
+export default monitoringService

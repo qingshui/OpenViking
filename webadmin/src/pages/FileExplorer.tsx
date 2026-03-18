@@ -1,80 +1,43 @@
-import React, { useState, useEffect } from 'react'
-import { filesystemService } from '../services/filesystem'
-import apiClient from '../services/api'
+import React, { useState } from 'react'
+import {
+  useFileSystemList,
+  useMkDir,
+  useGetAbstract,
+  useGetOverview,
+  useReadContent
+} from '../hooks'
+import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card'
+import { Button, Input, Modal } from '../components'
+import { useToast } from '../components/ui/Toast'
 
-interface FileNode {
-  uri: string
-  name: string
-  type: 'file' | 'directory'
-}
+type ContentLevel = 'l0' | 'l1' | 'l2'
 
 const FileExplorer: React.FC = () => {
   const [currentUri, setCurrentUri] = useState('viking://resources/')
-  const [files, setFiles] = useState<FileNode[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [content, setContent] = useState<string>('')
-  const [showContent, setShowContent] = useState(false)
-  const [contentLevel, setContentLevel] = useState<'l0' | 'l1' | 'l2'>('l0')
+  const [showContentModal, setShowContentModal] = useState(false)
+  const [selectedUri, setSelectedUri] = useState('')
+  const [contentLevel, setContentLevel] = useState<ContentLevel>('l0')
+  const { addToast } = useToast()
 
-  useEffect(() => {
-    loadFiles()
-  }, [currentUri])
+  const { data: files, isLoading, refetch } = useFileSystemList(currentUri, false, 100)
+  const mkdirMutation = useMkDir()
 
-  const loadFiles = async () => {
-    try {
-      setLoading(true)
-      setError('')
-      const data = await filesystemService.list(currentUri)
-      setFiles(data)
-      setContent('')
-      setShowContent(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load files')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const abstractQuery = useGetAbstract(selectedUri)
+  const overviewQuery = useGetOverview(selectedUri)
+  const contentQuery = useReadContent(selectedUri)
 
-  const handleLoadContent = async (uri: string, level: 'l0' | 'l1' | 'l2') => {
-    try {
-      setContentLevel(level)
-      let content: string = ''
+  const contentData = contentLevel === 'l0' ? abstractQuery.data
+    : contentLevel === 'l1' ? overviewQuery.data
+    : contentQuery.data
 
-      if (level === 'l0') {
-        // L0: Abstract
-        const response = await apiClient.post('', {
-          method: 'GET',
-          path: '/api/v1/content/abstract',
-          query: { uri }
-        })
-        const data = response.data?.result
-        content = typeof data === 'string' ? data : data?.content || ''
-      } else if (level === 'l1') {
-        // L1: Overview
-        const response = await apiClient.post('', {
-          method: 'GET',
-          path: '/api/v1/content/overview',
-          query: { uri }
-        })
-        const data = response.data?.result
-        content = typeof data === 'string' ? data : data?.content || ''
-      } else {
-        // L2: Full content
-        const response = await apiClient.post('', {
-          method: 'GET',
-          path: '/api/v1/content/read',
-          query: { uri, offset: 0, limit: -1 }
-        })
-        const data = response.data?.result
-        content = typeof data === 'string' ? data : data?.content || ''
-      }
+  // contentData is APIResponse<ContentLevel>, extract content from data.data.content
+  const content = typeof contentData?.data === 'string' ? contentData.data
+    : (contentData?.data as any)?.content || ''
 
-      setContent(content)
-      setShowContent(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load content')
-    }
+  const handleLoadContent = (uri: string, level: ContentLevel) => {
+    setSelectedUri(uri)
+    setContentLevel(level)
+    setShowContentModal(true)
   }
 
   const handleMkdir = async () => {
@@ -82,111 +45,153 @@ const FileExplorer: React.FC = () => {
     if (!name) return
     try {
       const newUri = `${currentUri}${name}/`
-      await filesystemService.mkdir(newUri)
-      loadFiles()
+      await mkdirMutation.mutateAsync(newUri)
+      addToast({
+        type: 'success',
+        message: 'Directory created successfully'
+      })
+      refetch()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create directory')
+      addToast({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to create directory'
+      })
     }
   }
 
+  const getIcon = (type: string) => {
+    if (type === 'directory') {
+      return (
+        <svg className="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+          <path d="M3 4a2 2 0 012-2h6a2 2 0 012 2v1h1a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2V4z" />
+        </svg>
+      )
+    }
+    return (
+      <svg className="w-5 h-5 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+        <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+      </svg>
+    )
+  }
+
+  const fileList = files?.success ? files.data || [] : []
+
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center gap-4">
-          <input
-            type="text"
-            value={currentUri}
-            onChange={(e) => setCurrentUri(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg w-96"
-          />
-          <button
-            onClick={loadFiles}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-          >
-            Load
-          </button>
-          <button
-            onClick={handleMkdir}
-            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
-          >
-            Create Directory
-          </button>
-        </div>
-      </div>
-
-      {error && (
-        <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg mb-4">{error}</div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-          <div className="p-4 border-b">
-            <h3 className="font-semibold">Files</h3>
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <Card>
+        <CardHeader>
+          <CardTitle>File Explorer</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4">
+            <Input
+              value={currentUri}
+              onChange={(e) => setCurrentUri(e.target.value)}
+              className="w-96"
+              placeholder="viking://resources/"
+            />
+            <Button onClick={() => refetch()}>
+              Load
+            </Button>
+            <Button
+              onClick={handleMkdir}
+              loading={mkdirMutation.isPending}
+            >
+              Create Directory
+            </Button>
           </div>
-          <div className="max-h-96 overflow-y-auto">
-            {loading ? (
-              <div className="p-4 text-center text-gray-500">Loading...</div>
-            ) : files.length === 0 ? (
-              <div className="p-4 text-center text-gray-500">No files</div>
-            ) : (
-              files.map((file) => (
+        </CardContent>
+      </Card>
+
+      {/* Files Grid */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Files</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="text-center py-8 text-gray-500">Loading...</div>
+          ) : fileList.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">No files</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {fileList.map((file: any) => (
                 <div
                   key={file.uri}
-                  className="p-4 border-b hover:bg-gray-50"
+                  className="border rounded-lg p-4 hover:shadow-md transition-shadow"
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium">{file.name}</div>
-                      <div className="text-xs text-gray-500">{file.uri}</div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleLoadContent(file.uri, 'l0')}
-                        className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200"
-                      >
-                        L0
-                      </button>
-                      <button
-                        onClick={() => handleLoadContent(file.uri, 'l1')}
-                        className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200"
-                      >
-                        L1
-                      </button>
-                      <button
-                        onClick={() => handleLoadContent(file.uri, 'l2')}
-                        className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded hover:bg-purple-200"
-                      >
-                        L2
-                      </button>
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      {getIcon(file.type)}
+                      <div>
+                        <div className="font-medium text-gray-900">{file.name}</div>
+                        <div className="text-xs text-gray-500 font-mono">{file.uri}</div>
+                      </div>
                     </div>
                   </div>
+                  <div className="flex gap-2 mt-3">
+                    <Button
+                      variant="secondary"
+                      size="small"
+                      onClick={() => handleLoadContent(file.uri, 'l0')}
+                    >
+                      L0
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="small"
+                      onClick={() => handleLoadContent(file.uri, 'l1')}
+                    >
+                      L1
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="small"
+                      onClick={() => handleLoadContent(file.uri, 'l2')}
+                    >
+                      L2
+                    </Button>
+                  </div>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-          <div className="p-4 border-b flex justify-between items-center">
-            <h3 className="font-semibold">Content ({contentLevel.toUpperCase()})</h3>
-            <button
-              onClick={() => setShowContent(false)}
-              className="text-sm text-gray-600 hover:text-gray-800"
-            >
-              Close
-            </button>
+      {/* Content Modal */}
+      <Modal
+        isOpen={showContentModal}
+        onClose={() => setShowContentModal(false)}
+        title={`Content (${contentLevel.toUpperCase()})`}
+        size="large"
+      >
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-600 font-mono">{selectedUri}</p>
+            <span className={`px-2 py-1 rounded text-xs font-medium ${
+              contentLevel === 'l0' ? 'bg-blue-100 text-blue-700'
+              : contentLevel === 'l1' ? 'bg-green-100 text-green-700'
+              : 'bg-purple-100 text-purple-700'
+            }`}>
+              {contentLevel === 'l0' ? 'Abstract'
+                : contentLevel === 'l1' ? 'Overview'
+                : 'Full Content'}
+            </span>
           </div>
-          <div className="max-h-96 overflow-y-auto p-4">
-            {showContent ? (
-              <pre className="whitespace-pre-wrap text-sm text-gray-900">{content}</pre>
-            ) : (
-              <div className="text-center text-gray-500 py-8">
-                Select a file and click L0/L1/L2 to view content
-              </div>
-            )}
-          </div>
+
+          {(abstractQuery.isLoading || overviewQuery.isLoading || contentQuery.isLoading) ? (
+            <div className="text-center py-8 text-gray-500">Loading content...</div>
+          ) : (
+            <div className="border rounded-lg p-4 max-h-96 overflow-y-auto">
+              <pre className="whitespace-pre-wrap text-sm text-gray-900 font-mono">
+                {content || 'No content available'}
+              </pre>
+            </div>
+          )}
         </div>
-      </div>
+      </Modal>
     </div>
   )
 }
