@@ -207,34 +207,83 @@ const Dashboard: React.FC = () => {
             <CardTitle>VikingDB Status</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <div className="text-sm text-gray-600">Collections</div>
-                <div className="text-2xl font-bold">
-                  {monitoringData.vikingdb?.collections ?? '0'}
-                </div>
+            {monitoringData.vikingdb.collection_list && monitoringData.vikingdb.collection_list.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Collection</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Index Count</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vector Count</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {monitoringData.vikingdb.collection_list.map((col: any, index: number) => (
+                      <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{col.collection}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-mono">
+                          {col.index_count?.toLocaleString() ?? '0'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-bold font-mono">
+                          {col.vector_count?.toLocaleString() ?? '0'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                            col.status === 'OK' ? 'bg-green-100 text-green-800' :
+                            col.status === 'Error' ? 'bg-red-100 text-red-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {col.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-gray-100">
+                    <tr>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">Totals:</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-gray-900 font-mono">
+                        {monitoringData.vikingdb.collection_list.reduce((sum: number, c: any) => sum + (c.index_count || 0), 0).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-gray-900 font-mono">
+                        {monitoringData.vikingdb.total_vectors?.toLocaleString() ?? '0'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-500"></td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
-              <div>
-                <div className="text-sm text-gray-600">Total Vectors</div>
-                <div className="text-2xl font-bold">
-                  {monitoringData.vikingdb?.total_vectors?.toLocaleString() ?? '0'}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Storage Used</div>
-                <div className="text-2xl font-bold">
-                  {formatSize(monitoringData.vikingdb?.storage_used ?? 0)}
-                </div>
-              </div>
-              {monitoringData.vikingdb.query_performance && (
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <div className="text-sm text-gray-600">Avg Latency</div>
+                  <div className="text-sm text-gray-600">Collections</div>
                   <div className="text-2xl font-bold">
-                    {monitoringData.vikingdb.query_performance.avg_latency_ms?.toFixed(2)}ms
+                    {monitoringData.vikingdb?.collections ?? '0'}
                   </div>
                 </div>
-              )}
-            </div>
+                <div>
+                  <div className="text-sm text-gray-600">Total Vectors</div>
+                  <div className="text-2xl font-bold">
+                    {monitoringData.vikingdb?.total_vectors?.toLocaleString() ?? '0'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600">Storage Used</div>
+                  <div className="text-2xl font-bold">
+                    {formatSize(monitoringData.vikingdb?.storage_used ?? 0)}
+                  </div>
+                </div>
+                {monitoringData.vikingdb.query_performance && (
+                  <div>
+                    <div className="text-sm text-gray-600">Avg Latency</div>
+                    <div className="text-2xl font-bold">
+                      {monitoringData.vikingdb.query_performance.avg_latency_ms?.toFixed(2)}ms
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

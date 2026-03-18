@@ -43,10 +43,18 @@ export interface ResourceStats {
   [key: string]: any
 }
 
+export interface VikingDBCollection {
+  collection: string
+  index_count: number
+  vector_count: number
+  status: string
+}
+
 export interface VikingDBStatus {
   collections: number
   total_vectors: number
   storage_used: number
+  collection_list?: VikingDBCollection[]
   query_performance?: {
     avg_latency_ms?: number
     queries_per_second?: number
@@ -143,9 +151,82 @@ export interface BackendVikingDBResponse {
   status: string
 }
 
+// Parse ASCII table from VikingDB status
+const parseVikingDBTable = (table: string): VikingDBCollection[] => {
+  const lines = table.trim().split('\n')
+  if (lines.length < 4) {
+    return []
+  }
+
+  // Find header line (the one with column names)
+  let headerLine = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('| Collection |') || lines[i].includes('|Collection|')) {
+      headerLine = i
+      break
+    }
+  }
+
+  if (headerLine === -1 || headerLine + 2 >= lines.length) {
+    return []
+  }
+
+  const results: VikingDBCollection[] = []
+
+  // Start from line after separator (headerLine + 2) and parse until next separator or end
+  for (let i = headerLine + 2; i < lines.length; i++) {
+    const line = lines[i]
+    // Stop if we hit a separator line (starts with +---)
+    if (line.trim().startsWith('+') && line.includes('-')) {
+      continue
+    }
+
+    const columns = line.split('|').map(col => col.trim()).filter(col => col !== '')
+
+    // Expected columns: Collection, Index Count, Vector Count, Status
+    if (columns.length >= 4) {
+      // Skip TOTAL row
+      if (columns[0] === 'TOTAL' || columns[0].toUpperCase() === 'TOTAL') {
+        continue
+      }
+
+      results.push({
+        collection: columns[0],
+        index_count: parseInt(columns[1]) || 0,
+        vector_count: parseInt(columns[2]) || 0,
+        status: columns[3] || 'Unknown'
+      })
+    }
+  }
+
+  return results
+}
+
 // Normalize backend VikingDB response
 const normalizeVikingDBStatus = (backend: BackendVikingDBResponse): VikingDBStatus => {
-  // Parse the table string to extract values
+  // Try to parse the ASCII table
+  const parsedCollections = parseVikingDBTable(backend.status)
+
+  if (parsedCollections.length > 0) {
+    // Calculate totals across all collections
+    let totalIndexCount = 0
+    let totalVectorCount = 0
+
+    for (const col of parsedCollections) {
+      totalIndexCount += col.index_count
+      totalVectorCount += col.vector_count
+    }
+
+    return {
+      collections: parsedCollections.length,
+      total_vectors: totalVectorCount,
+      storage_used: 0,
+      collection_list: parsedCollections,
+      query_performance: {}
+    }
+  }
+
+  // Fallback to simple parsing if table parsing fails
   const lines = backend.status.split('\n')
   const dataLine = lines.find(l => l.includes('|  context  |')) || lines.find(l => l.includes('| context |'))
 
@@ -153,9 +234,10 @@ const normalizeVikingDBStatus = (backend: BackendVikingDBResponse): VikingDBStat
     const parts = dataLine.split('|').map(s => s.trim()).filter(s => s)
     if (parts.length >= 3) {
       return {
-        collections: parseInt(parts[1]) || 0,
+        collections: 1,
         total_vectors: parseInt(parts[2]) || 0,
         storage_used: 0,
+        collection_list: [],
         query_performance: {}
       }
     }
@@ -165,6 +247,7 @@ const normalizeVikingDBStatus = (backend: BackendVikingDBResponse): VikingDBStat
     collections: 0,
     total_vectors: 0,
     storage_used: 0,
+    collection_list: [],
     query_performance: {}
   }
 }
