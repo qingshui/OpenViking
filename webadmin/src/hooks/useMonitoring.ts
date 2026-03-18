@@ -10,7 +10,7 @@ export interface UseMonitoringOptions {
   refetchInterval?: number
 }
 
-// Monitoring hook
+// Monitoring hook - gets all data from single /observer/system endpoint
 export const useMonitoring = (options: UseMonitoringOptions = {}) => {
   const { enabled = true, refetchInterval = 30000 } = options
 
@@ -29,44 +29,16 @@ export const useMonitoring = (options: UseMonitoringOptions = {}) => {
   })
 }
 
-// Individual monitoring hooks
+// Individual monitoring hooks - all use getAll which fetches from single endpoint
 export const useSystemStatus = () => {
   return useQuery({
-    queryKey: ['monitoring', 'system'],
-    queryFn: monitoringService.getSystemStatus,
-    refetchInterval: 30000
-  })
-}
-
-export const useQueueStatus = () => {
-  return useQuery({
-    queryKey: ['monitoring', 'queue'],
-    queryFn: monitoringService.getQueueStatus,
-    refetchInterval: 30000
-  })
-}
-
-export const useVikingDBStatus = () => {
-  return useQuery({
-    queryKey: ['monitoring', 'vikingdb'],
-    queryFn: monitoringService.getVikingDBStatus,
-    refetchInterval: 60000
-  })
-}
-
-export const useVLMStatus = () => {
-  return useQuery({
-    queryKey: ['monitoring', 'vlm'],
-    queryFn: monitoringService.getVLMStatus,
-    refetchInterval: 60000
-  })
-}
-
-export const useSystemInfo = () => {
-  return useQuery({
-    queryKey: ['monitoring', 'system-info'],
-    queryFn: monitoringService.getSystemInfo,
-    refetchInterval: 30000
+    queryKey: MONITORING_QUERY_KEY,
+    queryFn: async () => {
+      const response = await monitoringService.getAll()
+      return response.data?.system
+    },
+    refetchInterval: 30000,
+    select: (data) => data
   })
 }
 

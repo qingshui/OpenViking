@@ -1,11 +1,7 @@
 // Monitoring hooks
 export {
   useMonitoring,
-  useSystemStatus,
-  useQueueStatus,
-  useVikingDBStatus,
-  useVLMStatus,
-  useSystemInfo
+  useSystemStatus
 } from './useMonitoring'
 
 // Resource hooks
